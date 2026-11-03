@@ -78,6 +78,43 @@ class SourceStoreTest(TestCase):
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 3)
 
+    def test_v2_migration_does_not_invent_measurement_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "v2.sqlite3"
+            with closing(sqlite3.connect(path)) as db, db:
+                db.executescript("""
+                    CREATE TABLE observations (
+                        id INTEGER PRIMARY KEY, track_id TEXT NOT NULL,
+                        received_ms INTEGER NOT NULL, lat REAL NOT NULL,
+                        lon REAL NOT NULL
+                    );
+                    CREATE INDEX observations_track_time
+                    ON observations(track_id, received_ms, id);
+                    CREATE TABLE sources (source_id TEXT PRIMARY KEY, label TEXT NOT NULL);
+                    CREATE TABLE runs (
+                        track_id TEXT PRIMARY KEY,
+                        source_id TEXT REFERENCES sources(source_id)
+                    );
+                    INSERT INTO runs VALUES ('run-a', NULL);
+                    INSERT INTO observations(track_id, received_ms, lat, lon)
+                    VALUES ('run-a', 1700000000000, 47, 28);
+                    PRAGMA user_version = 2;
+                """)
+            path.chmod(0o600)
+            store = ObservationStore(path)
+            try:
+                self.assertEqual(store.history("run-a")["points"][0]["lat"], 47)
+                self.assertNotIn("measured_time", store.history("run-a")["points"][0])
+                self.assertNotIn("accuracy_m", store.history("run-a")["points"][0])
+                store.record(48, 29, "run-a", measured_ms=1700000000000,
+                             provider="gps", accuracy_m=8.5)
+                self.assertEqual(store.history("run-a")["points"][-1]["provider"], "gps")
+            finally:
+                store.close()
+            with closing(sqlite3.connect(path)) as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],
+                                 SCHEMA_VERSION)
+
     def test_concurrent_writes_to_one_source_are_consistent(self):
         store = ObservationStore()
         try:

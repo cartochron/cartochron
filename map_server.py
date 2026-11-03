@@ -243,6 +243,9 @@ class Handler(BaseHTTPRequestHandler):
             lat, lon = obj["lat"], obj["lon"]
             track_id = obj.get("track_id", "legacy")
             source_id = obj.get("source_id")
+            measured_ms = obj.get("measured_ms")
+            provider = obj.get("provider")
+            accuracy_m = obj.get("accuracy_m")
             if source_id is not None and not valid_source_id(source_id):
                 return self._json(400, {"error": "invalid source_id"})
             if not valid_track_id(track_id):
@@ -254,11 +257,15 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             return self._json(400, {"error": "expected finite lat (-90..90) and lon (-180..180)"})
         try:
-            point = self.server.store.record(lat, lon, track_id, source_id)
+            point = self.server.store.record(lat, lon, track_id, source_id,
+                                             measured_ms=measured_ms, provider=provider,
+                                             accuracy_m=accuracy_m)
         except UnknownSource:
             return self._json(422, {"error": "source_id is not enrolled"})
         except SourceConflict:
             return self._json(409, {"error": "recording run/source conflict"})
+        except ValueError as exc:
+            return self._json(400, {"error": str(exc)})
         except sqlite3.Error:
             return self._json(503, {"error": "observation storage unavailable"})
         return self._json(201, point)

@@ -66,6 +66,42 @@ class SourceHTTPTest(unittest.TestCase):
             "track_id": "a", "lat": 47, "lon": 28, "source_id": "bad"})[0], 400)
         self.assertEqual(self.request("GET", "/api/tracks")[1]["tracks"][1]["source_id"], first)
 
+    def test_optional_fix_metadata_preserves_unknowns(self):
+        legacy = {"track_id": "old", "lat": 47, "lon": 28}
+        self.assertEqual(self.request("POST", "/api/position", legacy)[0], 201)
+        self.assertEqual(self.request("GET", "/api/points/recent?track_id=old")[1]["points"],
+                         [{"lat": 47, "lon": 28, "time":
+                           self.srv.store.recent("old")[0]["time"]}])
+
+        reported = {"track_id": "new", "lat": 47, "lon": 28,
+                    "measured_ms": 1793700000123, "provider": "network",
+                    "accuracy_m": 75.5}
+        code, receipt = self.request("POST", "/api/position", reported)
+        self.assertEqual(code, 201)
+        self.assertEqual(receipt["measured_time"], "2026-11-03T10:00:00.123+00:00")
+        self.assertEqual(receipt["provider"], "network")
+        self.assertEqual(receipt["accuracy_m"], 75.5)
+        for url in ("/api/points/recent?track_id=new", "/api/points?track_id=new"):
+            code, data = self.request("GET", url)
+            self.assertEqual(code, 200)
+            self.assertEqual(data["points"][0]["measured_time"], receipt["measured_time"])
+
+    def test_invalid_fix_metadata_rejects_without_inserting(self):
+        bad = [
+            {"measured_ms": "1793700000123"}, {"measured_ms": True},
+            {"measured_ms": -1}, {"measured_ms": 253402300800000},
+            {"provider": ""}, {"provider": "bad provider"},
+            {"provider": "x" * 41}, {"accuracy_m": -1},
+            {"accuracy_m": True}, {"accuracy_m": "10"},
+            {"accuracy_m": float("inf")},
+        ]
+        for fields in bad:
+            with self.subTest(fields=fields):
+                self.assertEqual(self.request("POST", "/api/position",
+                                 {"track_id": "bad", "lat": 47, "lon": 28,
+                                  **fields})[0], 400)
+        self.assertEqual(self.srv.store.history("bad")["points"], [])
+
     def test_source_catalogue_requires_authorization_when_enabled(self):
         self.srv.shutdown(); self.srv.server_close(); self.thread.join(timeout=2)
         auth = "Basic " + base64.b64encode(b"operator:secret").decode("ascii")

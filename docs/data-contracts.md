@@ -1,6 +1,6 @@
 # Cartochron data contracts
 
-## Implemented: location observation protocol (v2 database)
+## Implemented: location observation protocol (v3 database)
 
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
@@ -16,8 +16,15 @@ source. Conflicting assertions fail, rather than modifying earlier records.
 A future multi-tenant deployment must authenticate producers and bind their
 identities server-side before authorizing writes to a source.
 
-The database stores original accepted coordinates and reception times. The
-browser may draw connecting lines, but it cannot infer movement during gaps.
+The database stores original accepted coordinates and reception times. Producers
+may optionally report `measured_ms` (Unix epoch milliseconds), `provider` (an
+opaque provider name), and `accuracy_m` (horizontal accuracy in metres).
+These are producer assertions, not independently verified measurements. All
+three fields are absent for legacy and current Meterpreter observations; missing
+values must never be replaced with server receipt time or guessed accuracy.
+Schema v3 migrates older databases, preserving NULL metadata for past fixes.
+
+The browser may draw connecting lines, but it cannot infer movement during gaps.
 Time queries use `[from, to)` on the server's receipt clock. An old run migrated
 from v1 stays unassigned; no attempt is made to infer device identity.
 

@@ -2,6 +2,7 @@
 
 import os
 import secrets
+import math
 import re
 import sqlite3
 import stat
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_TRACKS = 100
 MAX_SOURCES = 100
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
@@ -82,7 +83,7 @@ class ObservationStore:
         if version == SCHEMA_VERSION:
             self._verify_schema()
             return
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             raise ValueError(f"unsupported database schema version: {version}")
         if version == 0:
             existing = self._db.execute(
@@ -106,37 +107,53 @@ class ObservationStore:
                     ON observations(track_id, received_ms, id)
                 """)
                 self._db.execute("PRAGMA user_version = 1")
-        else:
+        elif version == 1:
             self._db.execute(
                 "SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0"
             )
+        else:  # Existing v2 databases must have their source/run tables intact.
+            self._db.execute("SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0")
+            self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
+            self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
 
-        # One transaction upgrades both new and existing version-1 databases.
-        # Old runs remain unassigned; no historical source is guessed.
+        if version < 2:
+            # One transaction upgrades both new and existing version-1 databases.
+            # Old runs remain unassigned; no historical source is guessed.
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute("""
+                    CREATE TABLE sources (
+                        source_id TEXT PRIMARY KEY,
+                        label TEXT NOT NULL
+                    )
+                """)
+                self._db.execute("""
+                    CREATE TABLE runs (
+                        track_id TEXT PRIMARY KEY,
+                        source_id TEXT REFERENCES sources(source_id)
+                    )
+                """)
+                self._db.execute("""
+                    INSERT INTO runs(track_id, source_id)
+                    SELECT DISTINCT track_id, NULL FROM observations
+                """)
+                self._db.execute("PRAGMA user_version = 2")
+
+        # Optional producer-reported fix metadata. Legacy values stay NULL.
         with self._db:
             self._db.execute("BEGIN IMMEDIATE")
-            self._db.execute("""
-                CREATE TABLE sources (
-                    source_id TEXT PRIMARY KEY,
-                    label TEXT NOT NULL
-                )
-            """)
-            self._db.execute("""
-                CREATE TABLE runs (
-                    track_id TEXT PRIMARY KEY,
-                    source_id TEXT REFERENCES sources(source_id)
-                )
-            """)
-            self._db.execute("""
-                INSERT INTO runs(track_id, source_id)
-                SELECT DISTINCT track_id, NULL FROM observations
-            """)
-            self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._db.execute("ALTER TABLE observations ADD COLUMN measured_ms INTEGER")
+            self._db.execute("ALTER TABLE observations ADD COLUMN provider TEXT")
+            self._db.execute("ALTER TABLE observations ADD COLUMN accuracy_m REAL")
+            self._db.execute("PRAGMA user_version = 3")
         self._verify_schema()
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.
-        self._db.execute("SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0")
+        self._db.execute(
+            "SELECT id, track_id, received_ms, lat, lon, measured_ms, provider, accuracy_m "
+            "FROM observations LIMIT 0"
+        )
         self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
         self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
 
@@ -176,16 +193,26 @@ class ObservationStore:
 
     @classmethod
     def _point(cls, row):
-        received_ms, lat, lon = row
-        return {"lat": lat, "lon": lon, "time": cls._timestamp(received_ms)}
+        received_ms, lat, lon, measured_ms, provider, accuracy_m = row
+        point = {"lat": lat, "lon": lon, "time": cls._timestamp(received_ms)}
+        if measured_ms is not None:
+            point["measured_time"] = cls._timestamp(measured_ms, "milliseconds")
+        if provider is not None:
+            point["provider"] = provider
+        if accuracy_m is not None:
+            point["accuracy_m"] = accuracy_m
+        return point
 
     @classmethod
     def _historical_point(cls, row):
-        point_id, received_ms, lat, lon = row
-        return {"id": point_id, "received_ms": received_ms,
-                "lat": lat, "lon": lon, "time": cls._timestamp(received_ms, "milliseconds")}
+        point_id, *fix = row
+        point = cls._point(fix)
+        point.update(id=point_id, received_ms=fix[0],
+                     time=cls._timestamp(fix[0], "milliseconds"))
+        return point
 
-    def record(self, lat, lon, track_id="legacy", source_id=None):
+    def record(self, lat, lon, track_id="legacy", source_id=None, *,
+               measured_ms=None, provider=None, accuracy_m=None):
         """Commit an observation under one immutable run-to-source association.
 
         A run first created without a source cannot silently be claimed later,
@@ -195,6 +222,16 @@ class ObservationStore:
             raise ValueError("invalid track_id")
         if source_id is not None and not valid_source_id(source_id):
             raise ValueError("invalid source_id")
+        if measured_ms is not None and (type(measured_ms) is not int or
+                                        not 0 <= measured_ms <= 253402300799999):
+            raise ValueError("invalid measured_ms")
+        if provider is not None and (not isinstance(provider, str) or
+                                     re.fullmatch(r"[A-Za-z0-9._-]{1,40}", provider) is None):
+            raise ValueError("invalid provider")
+        if accuracy_m is not None and (type(accuracy_m) not in (int, float) or
+                                       not math.isfinite(accuracy_m) or
+                                       not 0 <= accuracy_m <= 100000):
+            raise ValueError("invalid accuracy_m")
         with self._lock, self._db:
             if source_id is not None and self._db.execute(
                     "SELECT 1 FROM sources WHERE source_id = ?", (source_id,)).fetchone() is None:
@@ -208,8 +245,10 @@ class ObservationStore:
                 raise SourceConflict("recording run belongs to a different source")
             received_ms = time.time_ns() // 1_000_000
             self._db.execute(
-                "INSERT INTO observations(track_id, received_ms, lat, lon) VALUES (?, ?, ?, ?)",
-                (track_id, received_ms, lat, lon),
+                """INSERT INTO observations(track_id, received_ms, lat, lon,
+                                             measured_ms, provider, accuracy_m)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (track_id, received_ms, lat, lon, measured_ms, provider, accuracy_m),
             )
             if not self._persistent:
                 self._db.execute("""
@@ -217,7 +256,7 @@ class ObservationStore:
                         SELECT id FROM observations ORDER BY id DESC LIMIT ?
                     )
                 """, (MAX_RECENT_POINTS,))
-        return self._point((received_ms, lat, lon))
+        return self._point((received_ms, lat, lon, measured_ms, provider, accuracy_m))
 
     def recent(self, track_id=None):
         """Return the latest points from one run, in chronological order.
@@ -236,7 +275,8 @@ class ObservationStore:
                     return []
                 track_id = latest[0]
             rows = self._db.execute(
-                """SELECT received_ms, lat, lon FROM observations
+                """SELECT received_ms, lat, lon, measured_ms, provider, accuracy_m
+                   FROM observations
                    WHERE track_id = ? ORDER BY received_ms DESC, id DESC LIMIT ?""",
                 (track_id, MAX_RECENT_POINTS),
             ).fetchall()
@@ -284,7 +324,8 @@ class ObservationStore:
         if after is not None:
             clauses.append("(received_ms, id) > (?, ?)")
             params.extend(after)
-        sql = ("SELECT id, received_ms, lat, lon FROM observations WHERE "
+        sql = ("SELECT id, received_ms, lat, lon, measured_ms, provider, accuracy_m "
+               "FROM observations WHERE "
                + " AND ".join(clauses)
                + " ORDER BY received_ms, id LIMIT ?")
         with self._lock:

@@ -197,9 +197,9 @@ optional `source_id` alongside the existing `lat`, `lon`, and `track_id` fields.
 An unknown source returns HTTP 422, and attempting to attach an existing run
 to another source returns HTTP 409. Both errors leave the observation history
 unchanged. Older producers can still omit `source_id`; their runs remain
-unassigned. Existing schema-v1 databases are upgraded to v2 automatically,
-with all historical run associations left unassigned. Make a database backup
-before upgrading; older Cartochron versions cannot read schema v2.
+unassigned. Existing schema-v1/v2 databases are upgraded to v3 automatically.
+Previously unassigned runs remain unassigned and absent measurement metadata
+remains NULL. Back up first; older Cartochron versions cannot read schema v3.
 
 The ID is **not an authentication token**. Access control remains the
 responsibility of the HTTP authentication / reverse proxy boundary, and every
@@ -468,6 +468,11 @@ A recording run is identified by `track_id`. Existing senders that POST only
 still returns the original `lat`, `lon`, and `time` fields on successful POST.
 `time` is the server's **receipt time**, not necessarily the moment when a
 GPS device obtained a fix. The database retains integer UTC milliseconds.
+Producers may supply optional `measured_ms` (Unix epoch milliseconds),
+`provider` and `accuracy_m` (horizontal accuracy in metres). Read responses and
+POST receipts expose these only when supplied (`measured_time` is RFC3339).
+They are unverified producer reports, not substitute receipt timestamps.
+The current Meterpreter adapter supplies none of these metadata fields.
 
 The API exposes these relevant GET operations:
 
