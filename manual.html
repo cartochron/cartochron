@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cartochron | Field manual</title>
+  <style>
+    :root {color-scheme:dark;font:15px/1.65 system-ui,sans-serif;background:#101820;color:#eaf2f7}
+    * {box-sizing:border-box}
+    body {max-width:950px;margin:0 auto;padding:24px 22px 64px}
+    a {color:#7fd0ff} a:focus-visible {outline:2px solid #7fd0ff;outline-offset:3px}
+    h1,h2,h3 {line-height:1.25;color:#fff} h1 {font-size:2rem} h2 {margin-top:36px}
+    p,li {max-width:85ch} .lede {color:#b9d0df;font-size:1.1rem}
+    .intro {border-bottom:1px solid #3a5363;padding-bottom:16px}
+    .panel {border:1px solid #39576a;background:#162735;border-radius:9px;padding:16px;margin:20px 0}
+    .steps {display:flex;gap:12px;flex-wrap:wrap;list-style:none;padding:0}
+    .steps a {border:1px solid #59788a;border-radius:5px;padding:7px 12px;text-decoration:none}
+    figure {margin:24px 0} figure img {display:block;width:100%;height:auto;border:1px solid #496577;border-radius:6px}
+    figcaption,.note {font-size:.9rem;color:#b7cdda}
+    kbd,code {font: .92em ui-monospace,SFMono-Regular,Consolas,monospace;background:#253c4b;border-radius:3px;padding:2px 5px}
+    pre {overflow:auto;padding:12px;background:#1a2e3b;border-radius:6px}
+    footer {border-top:1px solid #3a5363;padding-top:14px;color:#b7cdda}
+    @media(max-width:600px) {body {padding:16px 12px} h1 {font-size:1.6rem}}
+  </style>
+</head>
+<body>
+  <div class="intro">
+    <p><a href="/">← Return to Cartochron map</a></p>
+    <h1>Cartochron field manual</h1>
+    <p class="lede">A practical guide to recording runs, interpreting gaps, comparing routes in space and time, and inspecting observed positions.</p>
+    <nav aria-label="Manual contents"><ul class="steps">
+      <li><a href="#runs">Tracks</a></li><li><a href="#gaps">Gaps</a></li>
+      <li><a href="#timeline">Shared time</a></li><li><a href="#place">Places</a></li>
+      <li><a href="#field">Field checks</a></li>
+    </ul></nav>
+  </div>
+  <div class="panel"><strong>What the map can tell you.</strong> A line connects recorded fixes within the same recording run; it is not proof of movement along every point of the line. Time means <em>server receipt time</em>, not necessarily the GPS fix acquisition time. A geographic crossing is not evidence of a meeting, and an absent fix does not prove an absence.</div>
+  <h2 id="runs">1. Choose and compare recording runs</h2>
+  <p>Choose a focused run in <strong>Track</strong>, then switch to <strong>History</strong>. Use <strong>Tracks</strong> to show up to three additional runs (four total). The focused run stays blue, while comparisons use outlined violet, teal, and crimson routes. Hover or click a route node to inspect the recorded timestamp and coordinates.</p>
+  <p><strong>Entire runs (spatial)</strong> displays each comparison run across its own loaded history; <strong>Same interval</strong> applies the focused run's selected <strong>From</strong>/<strong>To</strong> time window to every comparison. The displayed data is paginated; inspect the <strong>Load more</strong> and partial-results messages before drawing conclusions.</p>
+  <figure><img src="/docs/images/tracks.png" alt="Synthetic city-loop and crossing runs shown with separate colors and controls for choosing visible tracks."><figcaption>Figure 1. (1) Tracks opens the visibility selector; (2) each checked run is drawn separately; (3) Shared time highlights only recent recorded fixes. Synthetic Prague example, captured offline without map tiles.</figcaption></figure>
+  <h2 id="gaps">2. Recognize recording gaps</h2>
+  <p>Cartochron splits a drawn route when consecutive observations are more than <strong>10 minutes</strong> apart. Pale gap-end rings mark the last fix before and first fix after missing data. Click either ring or move <strong>Inspect point</strong> to one of its endpoints to read the duration.</p>
+  <p>In the demo, <code>demo-city-loop</code> includes a deliberate <strong>21 minute 30 second</strong> interval without observations. The gap is about time; it does not establish that the source stopped moving. Shorter missing intervals are not flagged by this fixed display rule.</p>
+  <figure><img src="/docs/images/gaps.png" alt="Synthetic city-loop showing a route discontinuity and an explanatory gap marker."><figcaption>Figure 2. (1) Gap count and movement-unknown warning; (2) the inspected endpoint shows the 21m 30s missing interval. Pale rings mark both endpoints; no connecting movement is invented.</figcaption></figure>
+  <h2 id="timeline">3. Inspect several runs at the same time</h2>
+  <p>In History, adjust <strong>Shared time</strong> along the bottom. For each visible run, the map highlights the most recent actual fix at or before the cursor <em>only if it is at most five minutes old</em>. Older or absent observations show as <strong>no recent fix</strong>. This is not interpolation or location prediction.</p>
+  <p>The shared cursor spans the observations currently loaded in the browser, including comparisons. If a run is paginated or capped, the cursor does not represent its entire database history. For closer investigation, choose a narrower interval and load the necessary pages.</p>
+  <h2 id="place">4. Inspect a selected place</h2>
+  <p>Open <strong>Inspect place</strong> in History, select a 50, 100, or 250 metre radius, then click a location on the map. The browser lists the loaded observations inside the circle in chronological order, with their run IDs and distances. Up to 40 results are listed.</p>
+  <p>This is a <strong>local inspection of already loaded observations</strong>, not a database-wide search. If a track has no observations near the selected location, that says nothing about unrecorded movement or earlier pages you have not loaded. Distance is computed from reported coordinates without GPS accuracy metadata.</p>
+  <h2 id="field">5. Reproducible manual field checks</h2>
+  <p>Start with synthetic data, not a real person's location. Use separate files for the fixture and the receiver; never overwrite an existing observation database.</p>
+  <pre><code>python3 demo.py --db /tmp/cartochron-source.sqlite3
+python3 map_server.py --db /tmp/cartochron-source.sqlite3</code></pre>
+  <p>Select <code>demo-city-loop</code> for gaps and <code>demo-crossing</code> for route comparison. Select <code>demo-long-history</code> for pagination, and <code>demo-single-point</code> for a run with no drawable line.</p>
+  <p>For a live ingestion rehearsal, stop the first server, then run:</p>
+  <pre><code>python3 map_server.py --db /tmp/cartochron-receiver.sqlite3
+# In a different terminal:
+python3 replay.py --db /tmp/cartochron-source.sqlite3 --count 30 --interval 1</code></pre>
+  <p>In <strong>Live</strong>, choose <code>demo-replay</code> and check that new points appear. Then switch to <strong>History</strong> to verify that those observations are still queryable. Run <code>make check</code> for Python, Ruby, and optional Node.js regression tests.</p>
+  <div class="panel"><strong>Privacy and operation.</strong> Location histories are sensitive. The default memory-only server discards observations on exit. Persistent mode uses a private SQLite file. Exposing a network listener requires appropriate authentication and an encrypted transport (TLS reverse proxy or trusted VPN). Operate only with authorization and a defined retention policy.</div>
+  <footer>Cartochron · Field manual for the current observation viewer · Illustrations use synthetic observations only.</footer>
+</body>
+</html>

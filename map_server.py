@@ -20,6 +20,10 @@ MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
 _HTML = (_ROOT / "index.html").read_bytes()
 _VIEWER_JS = (_ROOT / "viewer.js").read_bytes()
+_MANUAL = (_ROOT / "manual.html").read_bytes()
+_HELP_IMAGES = {
+    "/docs/images/tracks.png", "/docs/images/gaps.png"
+}
 _LEAFLET_FILES = {
     "/vendor/leaflet/leaflet.css": "text/css; charset=utf-8",
     "/vendor/leaflet/leaflet.js": "text/javascript; charset=utf-8",
@@ -167,6 +171,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/":
             return self._reply(200, _HTML, "text/html; charset=utf-8")
+        if path == "/help":
+            return self._reply(200, _MANUAL, "text/html; charset=utf-8")
+        if path in _HELP_IMAGES:
+            return self._reply(200, (_ROOT / path.lstrip("/")).read_bytes(), "image/png")
         if path == "/viewer.js":
             return self._reply(200, _VIEWER_JS, "text/javascript; charset=utf-8")
         if path in _LEAFLET_FILES:

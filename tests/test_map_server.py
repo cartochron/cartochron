@@ -150,6 +150,24 @@ class MapServerTest(unittest.TestCase):
         self.start_server(authorization="Basic YTpi")
         self.assertEqual(self.request("GET", "/viewer.js")[0], 401)
 
+    def test_help_and_screenshots_use_same_authority_boundary(self):
+        for path, mime in (("/help", "text/html"),
+                           ("/docs/images/tracks.png", "image/png"),
+                           ("/docs/images/gaps.png", "image/png")):
+            status, headers, body = self.request("GET", path)
+            self.assertEqual(status, 200)
+            self.assertIn(mime, headers["Content-Type"])
+            self.assertTrue(body)
+        self.assertEqual(self.request("GET", "/docs/images/../README.md")[0], 404)
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.start_server(authorization="Basic YTpi")
+        for path in ("/help", "/docs/images/tracks.png", "/docs/images/gaps.png"):
+            self.assertEqual(self.request("GET", path)[0], 401)
+            self.assertEqual(self.request("GET", path,
+                             headers={"Authorization": "Basic YTpi"})[0], 200)
+
     def test_recent_track_query_stays_on_selected_run(self):
         for lat, track in ((47, "A"), (48, "B"), (49, "A"), (50, "B")):
             payload = json.dumps({"lat": lat, "lon": 28, "track_id": track}).encode()

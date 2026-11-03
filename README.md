@@ -102,6 +102,11 @@ pruning in persistent mode; the operator owns storage and deletion policy.
 
 ## Map navigation
 
+The **Help / Manual** link in the header opens an in-app field manual at
+`/help`, with annotated screenshots of synthetic recordings. The help page
+and its images have the same authentication requirements as the map.
+
+
 The track selector lists the 100 most recently updated runs (the catalogue
 reports when additional runs exist). When the page opens, it initially selects
 the most recently updated run. The selection remains pinned even if another
@@ -119,9 +124,20 @@ producer starts recording.
   narrow the interval to inspect the remainder. The interface reports partial
   results; it does not silently simplify a route or claim completeness.
 - A gap greater than **10 minutes between consecutive receipt times** breaks
-  the line into separate route segments. A straight line between sparse GPS
-  fixes is only a visualization, not proof of the path traveled. Green marks
+  the line into separate route segments. Pale endpoint rings explain the gap
+  duration when inspected. Movement between fixes is unknown. Green marks
   the first displayed fix, orange the last, and purple the inspected fix.
+- **Tracks** shows up to four runs at once: the focused blue run plus up to
+  three color-coded comparison layers. **Entire runs (spatial)** compares the
+  loaded routes regardless of time; **Same interval** filters comparisons to
+  the focused run's selected window.
+- **Shared time** highlights only the latest recorded fix at or before the
+  cursor if it is no more than five minutes old. It never interpolates
+  positions or treats stale fixes as current.
+- **Inspect place** accepts a click on the map and lists up to 40
+  chronologically ordered observations from **loaded** tracks within the
+  selected radius. It is not a whole-database search.
+
 
 History uses the server's **receipt times**. These are not guaranteed to equal
 GPS acquisition times. Map tiles are fetched separately from OpenStreetMap;
@@ -161,25 +177,28 @@ colors, and both sides of recording gaps remain visible. Long tracks display
 fewer dots to avoid overloading the map; clicking the line still locates fixes
 between them. Live mode opens an inspection popup on click.
 
-In **History** mode, **Overlay run** draws one other recording run in violet,
-with a dark outline so the route stays visible over roads and pale map tiles.
-**Overlay time** defaults to **Entire run**, so a run recorded yesterday can
-be compared geographically with a run recorded today. Choose **Same interval**
-to show only overlay observations in the primary run's selected `[from, to)`
-window. The viewer tells you if none fall in that interval; this is not a
-fetch failure. On overlay selection, the map fits both visible routes so a
-run in another city is not hidden outside the current viewport. The map may
-zoom out substantially if the runs are far apart.
+In **History** mode, choose **Tracks** to show comparison runs. The focused
+run remains blue; the three possible additional runs use violet, teal, and
+crimson with dark outlines. Clicking a node or a line opens its real recorded
+coordinates and time; the primary point slider continues to inspect the
+focused run only. **Entire runs (spatial)** compares geography across the
+loaded lifetimes, while **Same interval** uses the focused run's time window.
+The viewport fits visible tracks, even when they come from different cities.
 
-The overlay's nodes and lines are independently inspectable; the main slider
-still controls only the primary run. For the demo, select `demo-city-loop`,
-enter History mode, and overlay `demo-crossing`. Their routes cross
-geographically but the relevant observations were recorded at different
-times: **a crossing is not proof of a meeting**. Try selecting `demo-replay`
-(after synthetic replay) and overlaying `demo-long-history`: **Entire run**
-shows both, whereas **Same interval** shows zero overlay fixes for a recent
-narrow replay window. Overlays are bounded to 5,000 points and identify partial
-results. Live mode still follows only the selected recording run.
+Try `demo-city-loop` plus `demo-crossing`; their routes intersect on the map
+but the fixes were recorded at different times. Their intersection alone
+cannot establish a meeting. Use the **Shared time** slider to see whether
+recent recorded fixes exist for each run, or **Inspect place** to read loaded
+observations near a manually chosen location in timestamp order.
+
+The browser caps each displayed run at 5,000 observations and reports partial
+pages. Place inspection and the shared time cursor operate only on the points
+currently loaded in the browser, not the entire persisted database. Check
+pagination and time intervals before treating an empty result as meaningful.
+
+See **Help / Manual** for screenshots and an operator walkthrough. The manual
+captures use a **neutral offline demonstration map base** and synthetic
+positions, not real GPS or downloaded map tiles.
 
 `make check` tests the database fixture and API automatically. The demo is for
 manual browser inspection: select a track, change the time range, move the
