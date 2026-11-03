@@ -54,13 +54,39 @@ class GPSStreamerTest < Minitest::Test
                  JSON.parse(@http.request_sent.body))
   end
 
+  def test_source_id_is_optional_and_sent_as_protocol_field
+    source = 'src_' + 'c' * 24
+    Net::HTTP.stub(:new, @http) do
+      @module.submit_position(URI('https://map.example.test/api/position'),
+                              47.0, 28.0, '', '', 'run-a', source)
+    end
+    assert_equal source, JSON.parse(@http.request_sent.body)['source_id']
+    assert_equal 'run-a', JSON.parse(@http.request_sent.body)['track_id']
+  end
+
+  def test_enrolled_source_reused_across_jobs_with_distinct_runs
+    success = Net::HTTPCreated.new('1.1', '201', 'Created')
+    source = 'src_' + 'a' * 24
+    first, _, _ = streamer_fixture([success], settings: {'SOURCE_ID' => source})
+    assert_raises(Interrupt) { @module.run }
+    second, _, _ = streamer_fixture([success], settings: {'SOURCE_ID' => source})
+    assert_raises(Interrupt) { @module.run }
+    refute_equal first.first, second.first
+  end
+
+  def test_invalid_source_id_fails_before_streaming
+    _sent, _logs, console = streamer_fixture([], settings: {'SOURCE_ID' => 'invalid'})
+    @module.run
+    assert console.any? { |line| line.include?('SOURCE_ID') }
+  end
+
   def streamer_fixture(responses, positions: nil, interval: 5, settings: {})
     positions ||= Array.new(responses.size) { [{ 'lat' => 47.7548547, 'long' => 27.888729 }] }
     gps = Object.new
     calls = 0
     phone = Struct.new(:android).new(gps)
     datastore = { 'INTERVAL' => interval, 'ENDPOINT' => 'http://127.0.0.1:8765/api/position',
-                  'API_KEY' => '', 'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '' }.merge(settings)
+                  'API_KEY' => '', 'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '', 'SOURCE_ID' => '' }.merge(settings)
     sent = []
     logs = []
     console = []
@@ -73,7 +99,7 @@ class GPSStreamerTest < Minitest::Test
     @module.define_singleton_method(:print_good) { |message| console << message }
     @module.define_singleton_method(:print_status) { |message| console << message }
     @module.define_singleton_method(:print_error) { |message| console << message }
-    @module.define_singleton_method(:submit_position) do |_uri, _lat, _lon, _user, _password, track|
+    @module.define_singleton_method(:submit_position) do |_uri, _lat, _lon, _user, _password, track, _source|
       sent << track
       response = responses.fetch(calls - 1)
       raise response if response.is_a?(Exception)
