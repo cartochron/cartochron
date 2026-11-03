@@ -56,6 +56,28 @@ class DemoTest(unittest.TestCase):
             # A refused second run must not modify the existing database.
             with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1336)
+                # Every observed run must have an explicit ownership record,
+                # even when its source is deliberately unknown.
+                self.assertEqual(db.execute("""
+                    SELECT COUNT(*) FROM observations o
+                    LEFT JOIN runs r ON r.track_id = o.track_id
+                    WHERE r.track_id IS NULL
+                """).fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 5)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM runs WHERE source_id IS NOT NULL").fetchone()[0], 0)
+
+
+    def test_bad_fixture_rolls_back_and_leaves_no_partial_database(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broken.sqlite3"
+            fake_fixes = [("good-run", 1700000000000, 47, 28),
+                          ("bad-run", 1700000000100, 999, 28)]
+            with patch("demo.examples", return_value=iter(fake_fixes)):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    create_demo(path, 1700000000000)
+            self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":

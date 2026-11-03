@@ -57,10 +57,16 @@ def create_demo(filename, now_ms):
     store = ObservationStore(path)
     store.close()
     try:
+        observations = list(examples(now_ms))
         with closing(sqlite3.connect(path)) as db, db:
+            # Source labels are unknown, but recording runs are real database
+            # entities. Establish them in the same transaction as their fixes.
+            runs = sorted({track_id for track_id, *_ in observations})
+            db.executemany("INSERT INTO runs(track_id, source_id) VALUES (?, NULL)",
+                           ((track_id,) for track_id in runs))
             db.executemany(
                 "INSERT INTO observations(track_id, received_ms, lat, lon) VALUES (?, ?, ?, ?)",
-                examples(now_ms),
+                observations,
             )
     except Exception:
         path.unlink()
