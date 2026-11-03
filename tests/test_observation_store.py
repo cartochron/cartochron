@@ -6,6 +6,7 @@ import stat
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -31,6 +32,12 @@ class ObservationStoreTest(unittest.TestCase):
             self.assertEqual(len(store.tracks()["tracks"]), 2)
         finally:
             store.close()
+
+    def test_timestamp_formatting_preserves_exact_milliseconds(self):
+        self.assertEqual(ObservationStore._timestamp(1_700_000_000_001, "milliseconds"),
+                         "2023-11-14T22:13:20.001+00:00")
+        self.assertEqual(ObservationStore._timestamp(1_700_000_000_999, "milliseconds"),
+                         "2023-11-14T22:13:20.999+00:00")
 
     def test_historical_interval_is_half_open_with_stable_cursor(self):
         store = ObservationStore()
@@ -106,7 +113,7 @@ class ObservationStoreTest(unittest.TestCase):
                 self.assertEqual(len(before), MAX_RECENT_POINTS)
             finally:
                 store.close()
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], MAX_RECENT_POINTS + 5)
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
                 self.assertEqual(db.execute("SELECT DISTINCT track_id FROM observations").fetchone(), ("legacy",))
@@ -134,7 +141,7 @@ class ObservationStoreTest(unittest.TestCase):
     def test_refuse_unrelated_or_future_schema(self):
         with tempfile.TemporaryDirectory() as directory:
             filename = Path(directory) / "unrelated.sqlite3"
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 db.execute("CREATE TABLE unrelated (id INTEGER)")
             filename.chmod(0o600)
             with self.assertRaisesRegex(ValueError, "no Cartochron schema"):
@@ -142,7 +149,7 @@ class ObservationStoreTest(unittest.TestCase):
             filename.unlink()
             store = ObservationStore(filename)
             store.close()
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 db.execute("PRAGMA user_version = 2")
             with self.assertRaisesRegex(ValueError, "unsupported database schema"):
                 ObservationStore(filename)

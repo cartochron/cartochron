@@ -6,7 +6,7 @@ import sqlite3
 import stat
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
@@ -94,7 +94,9 @@ class ObservationStore:
 
     @staticmethod
     def _timestamp(received_ms, timespec="seconds"):
-        return datetime.fromtimestamp(received_ms / 1000, timezone.utc).isoformat(timespec=timespec)
+        # Integer arithmetic preserves exact milliseconds across time zones.
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        return (epoch + timedelta(milliseconds=received_ms)).isoformat(timespec=timespec)
 
     @classmethod
     def _point(cls, row):
@@ -139,7 +141,7 @@ class ObservationStore:
                 return []
             rows = self._db.execute(
                 """SELECT received_ms, lat, lon FROM observations
-                   WHERE track_id = ? ORDER BY id DESC LIMIT ?""",
+                   WHERE track_id = ? ORDER BY received_ms DESC, id DESC LIMIT ?""",
                 (latest[0], MAX_RECENT_POINTS),
             ).fetchall()
         return [self._point(row) for row in reversed(rows)]
