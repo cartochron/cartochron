@@ -6,52 +6,68 @@
   <title>Cartochron</title>
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <style>
-    html,body{height:100%;margin:0;font:15px system-ui,sans-serif;background:#101820;color:#edf2f5}
-    header{padding:14px 20px;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
-    h1{font-size:17px;margin:0} #status{color:#a9c3d1}
-    #map{height:calc(100% - 62px);min-height:300px}
-    code{font-size:13px} footer{display:none}
-    @media (max-width:500px){header{padding:12px}#map{height:calc(100% - 90px)}}
+    :root {color-scheme:dark; font:14px system-ui,sans-serif; background:#101820; color:#edf2f5}
+    * {box-sizing:border-box}
+    html,body {height:100%; margin:0}
+    body {display:flex; flex-direction:column}
+    header {padding:12px 16px; background:#14212b; border-bottom:1px solid #385061}
+    .top {display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+    .brand {display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+    h1 {font-size:18px; margin:0; letter-spacing:.03em}
+    #status, #detail, #page-status {color:#bdd0db; font-variant-numeric:tabular-nums}
+    .controls, #history-controls, #inspect {display:flex; align-items:center; flex-wrap:wrap; gap:10px}
+    #history-controls {margin-top:10px}
+    #inspect {padding:9px 16px; background:#14212b; border-top:1px solid #385061}
+    #inspect input {flex:1; min-width:140px}
+    label {display:flex; align-items:center; gap:7px; color:#bdd0db}
+    input,button,select {font:inherit; border:1px solid #536b7b; border-radius:5px; color:#edf2f5; background:#213441; padding:7px 9px}
+    button {cursor:pointer}
+    button:hover {background:#345064}
+    button[aria-pressed="true"] {background:#155884; border-color:#4ca8e6}
+    button:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #78baf2; outline-offset:2px}
+    #map {flex:1; min-height:280px; background:#18242d}
+    #track {max-width:210px}
+    #status {font-size:12px}
+    #detail {min-width:240px; font-size:12px}
+    #page-status {font-size:12px}
+    [hidden] {display:none!important}
+    @media(max-width:650px) {
+      header {padding:10px}
+      .top {align-items:flex-start}
+      #history-controls label {flex:1; min-width:165px}
+      #history-controls input {width:100%; min-width:0}
+      #inspect {padding:10px}
+      #detail {width:100%}
+    }
   </style>
 </head>
 <body>
-  <header><h1>Cartochron</h1><span id="status" aria-live="polite">Waiting for an observation</span></header>
-  <main id="map" aria-label="Map of manually submitted coordinates"></main>
+  <header>
+    <div class="top">
+      <div class="brand"><h1>Cartochron</h1><span id="status" role="status">Connecting…</span></div>
+      <div class="controls">
+        <label>Track <select id="track" aria-label="Recording run"><option>Loading…</option></select></label>
+        <div class="controls" aria-label="Map mode">
+          <button id="live" type="button" aria-pressed="true">Live</button>
+          <button id="history" type="button" aria-pressed="false">History</button>
+        </div>
+      </div>
+    </div>
+    <div id="history-controls" hidden>
+      <label>From <input id="from" type="datetime-local" step="1"></label>
+      <label>To <input id="to" type="datetime-local" step="1"></label>
+      <button id="apply" type="button">Show interval</button>
+      <button id="more" type="button" hidden>Load more</button>
+      <span id="page-status" aria-live="polite"></span>
+    </div>
+  </header>
+  <main id="map" aria-label="GPS observation map"></main>
+  <div id="inspect" hidden>
+    <label for="position">Inspect point</label>
+    <input id="position" type="range" min="0" value="0" aria-label="Position on historical track">
+    <output id="detail" for="position"></output>
+  </div>
   <script src="/vendor/leaflet/leaflet.js"></script>
-  <script>
-    const map = L.map('map').setView([0,0], 2);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom:19, referrerPolicy:'strict-origin-when-cross-origin', attribution:'&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    const trail = L.polyline([], {weight:3}).addTo(map);
-    let marker = null, lastKey = '', first = true;
-    async function refresh() {
-      try {
-        const r = await fetch('/api/points', {cache:'no-store'});
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        const {points} = await r.json();
-        const current = points.at(-1);
-        document.querySelector('#status').textContent = current
-          ? `${points.length} observation(s) · Last: ${current.time} · ${current.lat.toFixed(6)}, ${current.lon.toFixed(6)}`
-          : 'Waiting for an observation';
-        if(!current) return;
-        const key = JSON.stringify(current) + ':' + points.length;
-        if(key === lastKey) return;
-        lastKey = key;
-        trail.setLatLngs(points.map(p => [p.lat,p.lon]));
-        // A vector marker avoids Leaflet's external marker-icon.png asset,
-        // which our deliberately restrictive CSP does not permit.
-        if(!marker) marker = L.circleMarker([current.lat,current.lon], {
-          radius:7, weight:2, color:'#fff', fillColor:'#1976d2', fillOpacity:1
-        }).addTo(map);
-        else marker.setLatLng([current.lat,current.lon]);
-        if(first) { map.setView([current.lat,current.lon], 15); first = false; }
-      } catch(err) {
-        document.querySelector('#status').textContent = 'Map server unavailable: '+err.message;
-      }
-    }
-    refresh();
-    setInterval(refresh, 2000);
-  </script>
+  <script src="/viewer.js"></script>
 </body>
 </html>

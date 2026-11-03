@@ -138,6 +138,18 @@ class MapServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual([p["lat"] for p in json.loads(body)["points"]], [47, 49])
 
+    def test_viewer_script_is_served_and_guarded_by_authentication(self):
+        status, headers, body = self.request("GET", "/viewer.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", headers["Content-Type"])
+        self.assertIn(b"/api/points/recent", body)
+        self.assertNotIn("'unsafe-inline'", headers["Content-Security-Policy"].split("style-src")[0])
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.start_server(authorization="Basic YTpi")
+        self.assertEqual(self.request("GET", "/viewer.js")[0], 401)
+
     def test_recent_track_query_stays_on_selected_run(self):
         for lat, track in ((47, "A"), (48, "B"), (49, "A"), (50, "B")):
             payload = json.dumps({"lat": lat, "lon": 28, "track_id": track}).encode()
@@ -253,6 +265,7 @@ class MapServerTest(unittest.TestCase):
         self.start_server(authorization="Basic YTpi")
         self.assertEqual(self.request("GET", "/api/tracks")[0], 401)
         self.assertEqual(self.request("GET", "/api/points?track_id=legacy")[0], 401)
+        self.assertEqual(self.request("GET", "/api/points/recent?track_id=legacy")[0], 401)
         self.assertEqual(self.request("GET", "/api/points?track_id=legacy",
                                       headers={"Authorization": "Basic YTpi"})[0], 200)
 

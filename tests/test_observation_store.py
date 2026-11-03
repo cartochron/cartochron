@@ -33,6 +33,23 @@ class ObservationStoreTest(unittest.TestCase):
         finally:
             store.close()
 
+    def test_recent_explicit_track_returns_newest_page_not_first_page(self):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        store = ObservationStore(Path(directory.name) / "observations.sqlite3")
+        try:
+            for index in range(MAX_RECENT_POINTS + 3):
+                store.record(47, float(index % 180) - 90, "A")
+            store.record(48, 28, "B")
+            recent = store.recent("A")
+            self.assertEqual(len(recent), MAX_RECENT_POINTS)
+            self.assertEqual(recent[0]["lon"], 3 - 90)
+            self.assertEqual(recent[-1]["lon"], (MAX_RECENT_POINTS + 2) % 180 - 90)
+            self.assertEqual([p["lat"] for p in store.recent("B")], [48])
+        finally:
+            store.close()
+            directory.cleanup()
+
     def test_timestamp_formatting_preserves_exact_milliseconds(self):
         self.assertEqual(ObservationStore._timestamp(1_700_000_000_001, "milliseconds"),
                          "2023-11-14T22:13:20.001+00:00")

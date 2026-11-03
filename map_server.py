@@ -19,6 +19,7 @@ from observation_store import MAX_RECENT_POINTS, ObservationStore, valid_track_i
 MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
 _HTML = (_ROOT / "index.html").read_bytes()
+_VIEWER_JS = (_ROOT / "viewer.js").read_bytes()
 _LEAFLET_FILES = {
     "/vendor/leaflet/leaflet.css": "text/css; charset=utf-8",
     "/vendor/leaflet/leaflet.js": "text/javascript; charset=utf-8",
@@ -123,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tile.openstreetmap.org data:; connect-src 'self'; base-uri 'none'; form-action 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tile.openstreetmap.org data:; connect-src 'self'; base-uri 'none'; form-action 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -166,6 +167,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/":
             return self._reply(200, _HTML, "text/html; charset=utf-8")
+        if path == "/viewer.js":
+            return self._reply(200, _VIEWER_JS, "text/javascript; charset=utf-8")
         if path in _LEAFLET_FILES:
             asset = _ROOT / path.lstrip("/")
             if not asset.is_file():
