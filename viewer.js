@@ -15,9 +15,12 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 const layer = L.layerGroup().addTo(map);
+const compareLayer = L.layerGroup().addTo(map);
 
 let catalogue = [];
 let selectedTrack = '';
+let compareTrack = '';
+let compareGeneration = 0;
 let mode = 'live';
 let points = [];
 let cursor = null;
@@ -51,16 +54,19 @@ function clearView() {
   cursor = null;
   lastSignature = '';
   layer.clearLayers();
+  compareGeneration++;
+  compareLayer.clearLayers();
+  $('compare-status').textContent = '';
   $('inspect').hidden = true;
   $('more').hidden = true;
   $('page-status').textContent = '';
   status(selectedTrack ? 'Loading observations…' : 'Waiting for a recording run');
 }
 
-function pointText(p, index) {
+function pointText(p, index, track = selectedTrack, count = points.length) {
   // Use a text node: producer-controlled track IDs must never become HTML.
   const label = document.createElement('span');
-  label.textContent = `${selectedTrack} · ${index + 1}/${points.length} · ${localTime(p.time)} · `
+  label.textContent = `${track} · ${index + 1}/${count} · ${localTime(p.time)} · `
     + `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
   return label;
 }
@@ -76,18 +82,37 @@ function inspectPoint(index) {
   }
 }
 
-function nearestPoint(event, indices) {
+function nearestIndex(event, indices, observations) {
   // A polyline is clickable even where visual nodes were thinned out.
   // Compare positions in screen pixels rather than geographical degrees.
   const cursor = map.latLngToLayerPoint(event.latlng);
   let nearest = indices[0], distance = Infinity;
   for (const index of indices) {
-    const p = points[index];
+    const p = observations[index];
     const q = map.latLngToLayerPoint([p.lat, p.lon]);
     const square = (q.x - cursor.x) ** 2 + (q.y - cursor.y) ** 2;
     if (square < distance) { nearest = index; distance = square; }
   }
-  inspectPoint(nearest);
+  return nearest;
+}
+
+function routeParts(observations) {
+  const segments = [];
+  const ends = new Set([0, observations.length - 1]);
+  let current = [], previous = null;
+  for (let index = 0; index < observations.length; index++) {
+    const p = observations[index];
+    if (previous && Date.parse(p.time) - Date.parse(previous.time) > GAP_MS) {
+      segments.push(current);
+      ends.add(index - 1);
+      ends.add(index);
+      current = [];
+    }
+    current.push(index);
+    previous = p;
+  }
+  if (current.length) segments.push(current);
+  return {segments: segments.filter(segment => segment.length > 1), ends};
 }
 
 function render(fit = false) {
@@ -102,27 +127,11 @@ function render(fit = false) {
     status('No observations in this interval');
     return;
   }
-  const segments = [];
-  let indices = [];
-  const ends = new Set([0, points.length - 1]);
-  let previous = null;
-  for (let index = 0; index < points.length; index++) {
-    const p = points[index];
-    if (previous && Date.parse(p.time) - Date.parse(previous.time) > GAP_MS) {
-      segments.push(indices);
-      ends.add(index - 1);
-      ends.add(index);
-      indices = [];
-    }
-    indices.push(index);
-    previous = p;
-  }
-  if (indices.length) segments.push(indices);
-  const routeSegments = segments.filter(segment => segment.length > 1);
+  const {segments: routeSegments, ends} = routeParts(points);
   for (const segment of routeSegments) {
     L.polyline(segment.map(index => [points[index].lat, points[index].lon]), {
       color: '#57b9ef', weight: 3
-    }).on('click', event => nearestPoint(event, segment)).addTo(layer);
+    }).on('click', event => inspectPoint(nearestIndex(event, segment, points))).addTo(layer);
   }
 
   // Draw sparse, clickable observation nodes. Always retain segment ends,
@@ -219,6 +228,19 @@ async function refreshTracks() {
       }
       select.value = selectedTrack;
     }
+    const secondary = $('compare');
+    secondary.replaceChildren();
+    secondary.add(new Option('None', ''));
+    for (const track of catalogue) {
+      if (track.track_id !== selectedTrack) {
+        secondary.add(new Option(track.track_id, track.track_id));
+      }
+    }
+    if (compareTrack === selectedTrack) compareTrack = '';
+    if (compareTrack && !catalogue.some(t => t.track_id === compareTrack)) {
+      secondary.add(new Option(compareTrack + ' (not in recent list)', compareTrack));
+    }
+    secondary.value = compareTrack;
     if (result.truncated) $('track').title = 'Showing the 100 most recently updated runs';
     else $('track').title = '';
     if (selectedTrack !== previous) {
@@ -268,6 +290,7 @@ async function loadHistory(more = false) {
     const result = await getJSON('/api/points?' + url);
     if (token !== revision || mode !== 'history') return;
     const firstPage = !more;
+    if (firstPage) loadComparison();
     points = more ? points.concat(result.points) : result.points;
     cursor = result.next_cursor;
     render(firstPage);
@@ -282,11 +305,72 @@ async function loadHistory(more = false) {
   } finally { $('more').disabled = false; }
 }
 
+function renderComparison(observations, track) {
+  compareLayer.clearLayers();
+  if (!observations.length) return;
+  const {segments, ends} = routeParts(observations);
+  const show = index => {
+    const p = observations[index];
+    L.popup().setLatLng([p.lat, p.lon])
+      .setContent(pointText(p, index, track, observations.length)).openOn(map);
+  };
+  for (const segment of segments) {
+    L.polyline(segment.map(index => [observations[index].lat, observations[index].lon]), {
+      color: '#f8b449', weight: 3
+    }).on('click', event => show(nearestIndex(event, segment, observations))).addTo(compareLayer);
+  }
+  const stride = Math.max(1, Math.ceil(observations.length / MAX_NODES));
+  for (let index = 0; index < observations.length; index++) {
+    if (index % stride !== 0 && !ends.has(index)) continue;
+    const p = observations[index];
+    L.circleMarker([p.lat, p.lon], {
+      radius: 3, weight: 1, color: '#edf2f5',
+      fillColor: '#f8b449', fillOpacity: 0.9, bubblingMouseEvents: false
+    }).bindTooltip(pointText(p, index, track, observations.length))
+      .on('click', () => show(index)).addTo(compareLayer);
+  }
+}
+
+async function loadComparison() {
+  const generation = ++compareGeneration;
+  const token = revision;
+  const track = compareTrack;
+  compareLayer.clearLayers();
+  $('compare-status').textContent = '';
+  if (!track || track === selectedTrack || mode !== 'history' || !bounds) return;
+  try {
+    const observations = [];
+    let next = null;
+    do {
+      const query = new URLSearchParams({track_id: track, from: bounds.from,
+        to: bounds.to, limit: String(PAGE_SIZE)});
+      if (next) query.set('cursor', next);
+      const result = await getJSON('/api/points?' + query);
+      if (generation !== compareGeneration || token !== revision || mode !== 'history') return;
+      observations.push(...result.points);
+      next = result.next_cursor;
+    } while (next && observations.length < MAX_DISPLAY);
+    renderComparison(observations, track);
+    $('compare-status').textContent = `${observations.length} overlay fixes${next ? ' (partial)' : ''}`;
+  } catch (error) {
+    if (generation === compareGeneration && token === revision)
+      $('compare-status').textContent = 'Overlay unavailable: ' + error.message;
+  }
+}
+
 $('track').addEventListener('change', () => {
   selectedTrack = $('track').value;
+  if (compareTrack === selectedTrack) {
+    compareTrack = '';
+    $('compare').value = '';
+  }
   clearView();
   if (mode === 'history') {historyDefaults(); loadHistory();}
   else refreshLive();
+});
+$('compare').addEventListener('change', () => {
+  compareTrack = $('compare').value;
+  loadComparison();
 });
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));

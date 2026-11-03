@@ -32,6 +32,12 @@ def examples(now_ms):
 
     yield ("demo-single-point", now_ms - 25 * 60_000, 48.2082, 16.3738)
 
+    # An east-west route crosses the city loop geographically, but was
+    # recorded at a different time. A crossing is not proof of a meeting.
+    for i in range(25):
+        yield ("demo-crossing", now_ms - 120 * 60_000 + 4_000 * i,
+               50.081, 14.4195 + 0.00042 * i)
+
     # After sample 34, 21.5 minutes elapse with no observations. The viewer
     # must draw two route segments rather than invent a connecting movement.
     for i in range(75):
@@ -73,7 +79,8 @@ def main():
         parser.error(str(exc))
     print(f"Created synthetic observations in {filename}")
     print("Start the server with: python3 map_server.py --db " + str(filename))
-    print("Inspect demo-city-loop for a gap, demo-long-history for pagination, "
+    print("Inspect demo-city-loop for a gap, demo-crossing for a separate run "
+          "overlaid in History, demo-long-history for paging, "
           "or demo-single-point for one fix.")
 
 

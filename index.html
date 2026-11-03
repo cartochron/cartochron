@@ -14,7 +14,7 @@
     .top {display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
     .brand {display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
     h1 {font-size:18px; margin:0; letter-spacing:.03em}
-    #status, #detail, #page-status {color:#bdd0db; font-variant-numeric:tabular-nums}
+    #status, #detail, #page-status, #compare-status {color:#bdd0db; font-variant-numeric:tabular-nums}
     .controls, #history-controls, #inspect {display:flex; align-items:center; flex-wrap:wrap; gap:10px}
     #history-controls {margin-top:10px}
     #inspect {padding:9px 16px; background:#14212b; border-top:1px solid #385061}
@@ -29,7 +29,7 @@
     #track {max-width:210px}
     #status {font-size:12px}
     #detail {min-width:240px; font-size:12px}
-    #page-status {font-size:12px}
+    #page-status, #compare-status {font-size:12px}
     [hidden] {display:none!important}
     @media(max-width:650px) {
       header {padding:10px}
@@ -58,6 +58,8 @@
       <label>To <input id="to" type="datetime-local" step="1"></label>
       <button id="apply" type="button">Show interval</button>
       <button id="more" type="button" hidden>Load more</button>
+      <label>Overlay run <select id="compare" aria-label="Compare with another recording run"><option value="">None</option></select></label>
+      <span id="compare-status" aria-live="polite"></span>
       <span id="page-status" aria-live="polite"></span>
     </div>
   </header>

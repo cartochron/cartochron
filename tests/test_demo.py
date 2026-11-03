@@ -21,13 +21,27 @@ class DemoTest(unittest.TestCase):
             try:
                 tracks = store.tracks()["tracks"]
                 self.assertEqual([t["track_id"] for t in tracks],
-                                 ["demo-city-loop", "demo-single-point", "demo-long-history", "demo-river"])
-                self.assertEqual([t["count"] for t in tracks], [75, 1, 1205, 30])
+                                 ["demo-city-loop", "demo-crossing", "demo-single-point", "demo-long-history", "demo-river"])
+                self.assertEqual([t["count"] for t in tracks], [75, 25, 1, 1205, 30])
                 history = store.history("demo-city-loop")["points"]
                 self.assertEqual(len(history), 75)
                 self.assertEqual(len([1 for a, b in zip(history, history[1:])
                                       if b["received_ms"] - a["received_ms"] > 600_000]), 1)
                 self.assertEqual(len(store.history("demo-single-point")["points"]), 1)
+                crossing = store.history("demo-crossing")["points"]
+                self.assertEqual(len(crossing), 25)
+                self.assertTrue(crossing[0]["lon"] < 14.424 < crossing[-1]["lon"])
+                # The synthetic paths actually intersect: the city loop
+                # crosses the overlay's latitude within its longitude span.
+                self.assertTrue(any(
+                    (a["lat"] - crossing[0]["lat"]) *
+                    (b["lat"] - crossing[0]["lat"]) <= 0 and
+                    crossing[0]["lon"] <= a["lon"] <= crossing[-1]["lon"]
+                    for a, b in zip(history, history[1:])
+                ))
+                # The spatial crossing is intentionally offset in time.
+                self.assertGreater(history[35]["received_ms"] - crossing[12]["received_ms"],
+                                   50 * 60_000)
                 first_page = store.history("demo-long-history")
                 self.assertEqual(len(first_page["points"]), 1000)
                 self.assertTrue(first_page["truncated"])
@@ -41,7 +55,7 @@ class DemoTest(unittest.TestCase):
                 create_demo(path, 1_800_000_000_000)
             # A refused second run must not modify the existing database.
             with closing(sqlite3.connect(path)) as db:
-                self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1311)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1336)
 
 
 if __name__ == "__main__":

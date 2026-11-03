@@ -137,12 +137,13 @@ python3 demo.py --db /tmp/cartochron-demo.sqlite3
 python3 map_server.py --db /tmp/cartochron-demo.sqlite3
 ```
 
-Open <http://127.0.0.1:8765/>. The demo has four recording runs:
+Open <http://127.0.0.1:8765/>. The demo has five recording runs:
 
 | Run | What to inspect |
 | --- | --- |
 | `demo-city-loop` | 75 fixes; History shows two route segments across a 21.5-minute gap |
 | `demo-river` | 30 fixes in a different city; selecting it never joins the first route |
+| `demo-crossing` | 25 fixes crossing the city loop's geography at a different time |
 | `demo-single-point` | One fix, with no fabricated polyline |
 | `demo-long-history` | 1,205 fixes; History shows **Load more** after the first 1,000 |
 
@@ -160,9 +161,14 @@ colors, and both sides of recording gaps remain visible. Long tracks display
 fewer dots to avoid overloading the map; clicking the line still locates fixes
 between them. Live mode opens an inspection popup on click.
 
-The viewer displays **one recording run at a time**. Spatial intersections
-between separate tracks and coincident locations at different times must not
-be interpreted as proof of a meeting. Multi-run overlays are not implemented.
+In **History** mode, the optional **Overlay run** selector draws one other
+recording run in amber within the same time interval. Its nodes and lines are
+inspectable independently; the main slider still controls the primary run.
+For the demo, select `demo-city-loop`, enter History mode, then overlay
+`demo-crossing`. Their routes overlap geographically, but the observations
+were recorded at different times: **a crossing is not proof of a meeting**.
+Overlays are bounded to 5,000 points and say when the result is partial.
+Live mode still follows only the selected recording run.
 
 `make check` tests the database fixture and API automatically. The demo is for
 manual browser inspection: select a track, change the time range, move the

@@ -21,11 +21,16 @@ function viewer() {
     });
     return elements.get(id);
   }
-  const group = {
-    layers: [], addTo() { return this; },
-    clearLayers() { this.layers = []; },
-    removeLayer(layer) { this.layers = this.layers.filter(item => item !== layer); },
-  };
+  const groups = [];
+  function newGroup() {
+    const group = {
+      layers: [], addTo() { return this; },
+      clearLayers() { this.layers = []; },
+      removeLayer(layer) { this.layers = this.layers.filter(item => item !== layer); },
+    };
+    groups.push(group);
+    return group;
+  }
   const popup = {
     setLatLng(value) { this.position = value; return this; },
     setContent(value) { this.content = value; return this; },
@@ -55,7 +60,7 @@ function viewer() {
     L: {
       map: () => map,
       tileLayer: () => ({addTo() {}}),
-      layerGroup: () => group,
+      layerGroup: newGroup,
       polyline: (coords, options) => shape('polyline', coords, options),
       circleMarker: (coords, options) => shape('circle', coords, options),
       latLngBounds: () => ({getCenter: () => [0, 0]}),
@@ -74,9 +79,9 @@ function viewer() {
     context.fixtureMode = mode;
     context.fixtureTrack = track;
     exec('points = fixture; mode = fixtureMode; selectedTrack = fixtureTrack; lastSignature = ""; lastIndex = 0; render(true)');
-    return group.layers;
+    return groups[0].layers;
   }
-  return {render, exec, element, group, popup};
+  return {render, exec, element, group: groups[0], comparison: groups[1], popup, context};
 }
 
 function point(i, minutes = i) {
@@ -131,6 +136,26 @@ test('live view has clickable point details and never inserts track IDs as HTML'
   dots[0].events.click();
   assert.equal(ui.popup.content.textContent.includes(dangerous), true);
   assert.equal(ui.element('inspect').hidden, true);
+});
+
+test('history overlay separates runs and labels their observations independently', async () => {
+  const ui = viewer();
+  const primary = [point(0), point(1), point(2)];
+  ui.render(primary, 'history', 'run-A');
+  const other = [point(0), point(1)];
+  ui.context.fetch = async url => ({
+    ok: true, json: async () => ({points: other, next_cursor: null}),
+  });
+  ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
+  await ui.exec('loadComparison()');
+  assert.equal(ui.group.layers.filter(layer => layer.type === 'polyline').length, 1);
+  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 1);
+  const overlayNode = ui.comparison.layers.find(layer => layer.type === 'circle');
+  assert.ok(overlayNode.tooltip.textContent.includes('run-B'));
+  overlayNode.events.click();
+  assert.match(ui.popup.content.textContent, /run-B/);
+  assert.equal(ui.element('position').value, '0'); // Overlay does not move primary slider.
+  assert.equal(ui.element('compare-status').textContent, '2 overlay fixes');
 });
 
 test('a single recorded fix gets one interactive node but no invented route', () => {
