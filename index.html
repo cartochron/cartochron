@@ -22,7 +22,12 @@
     .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
     .track-layer span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .track-layer input {accent-color:#8724d5}
-    #inspect {padding:9px 16px; background:#14212b; border-top:1px solid #385061}
+    #inspect, #time-panel {padding:9px 16px; background:#14212b; border-top:1px solid #385061}
+    #time-panel {display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    #time-panel input {flex:1;min-width:150px}
+    #time-value, #time-results {font-size:12px;color:#bdd0db}
+    #time-results {display:flex;gap:8px;flex-wrap:wrap}
+    .time-result {border:1px solid #456273;border-radius:4px;padding:3px 6px}
     #inspect input {flex:1; min-width:140px}
     label {display:flex; align-items:center; gap:7px; color:#bdd0db}
     input,button,select {font:inherit; border:1px solid #536b7b; border-radius:5px; color:#edf2f5; background:#213441; padding:7px 9px}
@@ -83,6 +88,12 @@
     <label for="position" title="Click a route dot or line to inspect a recorded point">Inspect point</label>
     <input id="position" type="range" min="0" value="0" aria-label="Position on historical track">
     <output id="detail" for="position"></output>
+  </div>
+  <div id="time-panel" hidden>
+    <label for="time-cursor">Shared time</label>
+    <input id="time-cursor" type="range" min="0" max="1000" value="500" aria-label="Shared timeline position">
+    <output id="time-value" for="time-cursor"></output>
+    <div id="time-results" aria-live="polite"></div>
   </div>
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script src="/viewer.js"></script>

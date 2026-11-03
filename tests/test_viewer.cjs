@@ -205,7 +205,7 @@ test('multi-track overlays are independent, colored and clickable', async () => 
   };
   await ui.exec('loadOverlays()');
   assert.equal(ui.exec('overlayLayers.size'), 2);
-  const b = ui.groups[1].layers, c = ui.groups[2].layers;
+  const b = ui.exec('overlayLayers.get("run-B")').layers, c = ui.exec('overlayLayers.get("run-C")').layers;
   assert.equal(b.filter(x => x.type === 'polyline')[1].options.color, '#8724d5');
   assert.equal(c.filter(x => x.type === 'polyline')[1].options.color, '#007c78');
   b.find(x => x.type === 'circle').events.click();
@@ -240,4 +240,21 @@ test('focus switches cannot leave the focused track as its own overlay', () => {
   ui.exec('visibleOverlays.add("run-B"); selectedTrack="run-B"; visibleOverlays.delete(selectedTrack); renderLayerPanel()');
   assert.equal(ui.exec('visibleOverlays.size'), 0);
   assert.equal(ui.element('layers-list').children[1].children[0].disabled, true);
+});
+
+test('shared time cursor only draws fresh, observed fixes for each selected run', () => {
+  const ui = viewer();
+  ui.render([point(0, 0), point(1, 10)], 'history', 'run-A');
+  ui.context.fixtureB = [point(0, 0), point(1, 3)];
+  ui.exec('overlayPoints.set("run-B", fixtureB); visibleOverlays.add("run-B");');
+  // 0% of the loaded 10-minute span: both have a fix.
+  ui.element('time-cursor').value = '0';
+  ui.exec('updateTimeCursor()');
+  assert.equal(ui.exec('timeLayer.layers.length'), 2);
+  // End: A has a fresh fix; B last reported seven minutes ago.
+  ui.element('time-cursor').value = '1000';
+  ui.exec('updateTimeCursor()');
+  assert.equal(ui.exec('timeLayer.layers.length'), 1);
+  assert.match(ui.element('time-results').children[1].textContent, /no recent fix/);
+  assert.match(ui.element('time-value').textContent, /fixes older than 5 minutes/);
 });

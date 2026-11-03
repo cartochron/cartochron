@@ -12,6 +12,7 @@ const MAX_NODES = 140; // Keep long routes inspectable without thousands of DOM/
 const OVERLAY_COLORS = ['#8724d5', '#007c78', '#ca325a'];
 const OVERLAY_OUTLINE = '#162735'; // Dark casing works over light and busy tiles.
 const MAX_OVERLAYS = 3;
+const NEARBY_FIX_MS = 5 * 60 * 1000; // Do not display an old fix as a current location.
 const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
@@ -19,6 +20,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 const layer = L.layerGroup().addTo(map);
 const overlayLayers = new Map();
+const timeLayer = L.layerGroup().addTo(map);
 
 let catalogue = [];
 let selectedTrack = '';
@@ -64,6 +66,8 @@ function clearView() {
   for (const layer of overlayLayers.values()) {layer.clearLayers(); map.removeLayer(layer);}
   overlayLayers.clear();
   overlayPoints.clear();
+  timeLayer.clearLayers();
+  $('time-panel').hidden = true;
   $('compare-status').textContent = '';
   $('inspect').hidden = true;
   $('more').hidden = true;
@@ -204,8 +208,11 @@ function render(fit = false) {
     $('position').value = String(lastIndex);
     showInspection();
     status(`${points.length} observation${points.length === 1 ? '' : 's'} · ${routeSegments.length} route segment${routeSegments.length === 1 ? '' : 's'}`);
+    updateTimeCursor();
   } else {
     $('inspect').hidden = true;
+    timeLayer.clearLayers();
+    $('time-panel').hidden = true;
     const p = points.at(-1);
     status(`${points.length} recent observations · Last received ${localTime(p.time)}`);
   }
@@ -244,6 +251,7 @@ function setMode(next) {
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
   $('history').setAttribute('aria-pressed', String(mode === 'history'));
   $('history-controls').hidden = mode !== 'history';
+  if (mode !== 'history') $('layers-panel').hidden = true;
   clearView();
   if (mode === 'history') {
     historyDefaults();
@@ -341,6 +349,48 @@ async function loadHistory(more = false) {
   } finally { $('more').disabled = false; }
 }
 
+function updateTimeCursor() {
+  timeLayer.clearLayers();
+  const panel = $('time-panel');
+  if (mode !== 'history' || !points.length) {panel.hidden = true; return;}
+  panel.hidden = false;
+  const runs = [{name: selectedTrack, fixes: points, color: '#57b9ef'}];
+  for (const [i, track] of [...visibleOverlays].entries()) {
+    if (overlayPoints.has(track)) {
+      runs.push({name: track, fixes: overlayPoints.get(track), color: OVERLAY_COLORS[i]});
+    }
+  }
+  const times = runs.flatMap(run => run.fixes.map(p => Date.parse(p.time)));
+  const first = Math.min(...times), last = Math.max(...times);
+  const fraction = Number($('time-cursor').value || 0) / 1000;
+  const instant = first + Math.round((last - first) * fraction);
+  $('time-value').textContent = localTime(instant)
+    + ' · fixes older than 5 minutes are not shown as positions';
+  const result = $('time-results');
+  result.replaceChildren();
+  for (const run of runs) {
+    // Pages are in timestamp order; no interpolation, no claim of continuous presence.
+    let observed = null;
+    for (const p of run.fixes) {
+      if (Date.parse(p.time) > instant) break;
+      observed = p;
+    }
+    const age = observed ? instant - Date.parse(observed.time) : Infinity;
+    const recent = observed && age <= NEARBY_FIX_MS;
+    const item = document.createElement('span');
+    item.className = 'time-result';
+    item.textContent = `${run.name}: ${recent ? localTime(observed.time) : 'no recent fix'}`;
+    result.appendChild(item);
+    if (recent) {
+      L.circleMarker([observed.lat, observed.lon], {
+        radius: 9, weight: 3, color: '#101820', fillColor: run.color,
+        fillOpacity: 1, bubblingMouseEvents: false
+      }).bindTooltip(pointText(observed, run.fixes.indexOf(observed), run.name, run.fixes.length))
+        .addTo(timeLayer);
+    }
+  }
+}
+
 function renderLayerPanel() {
   const panel = $('layers-list');
   panel.replaceChildren();
@@ -414,7 +464,7 @@ async function loadOverlays() {
   const token = revision;
   clearOverlayLayers();
   $('compare-status').textContent = '';
-  if (mode !== 'history' || !bounds || !visibleOverlays.size) return;
+  if (mode !== 'history' || !bounds || !visibleOverlays.size) {updateTimeCursor(); return;}
   const tracks = [...visibleOverlays].filter(t => t !== selectedTrack);
   const scope = $('compare-time').value || 'all';
   $('compare-status').textContent = 'Loading comparison tracks…';
@@ -446,6 +496,7 @@ async function loadOverlays() {
     $('compare-status').textContent = notes.join(' · ')
       + (scope === 'interval' && tracks.every(t => !overlayPoints.get(t)?.length)
         ? ' · No comparison fixes in this interval; try Entire run.' : '');
+    updateTimeCursor();
   } catch (error) {
     if (generation === overlayGeneration && token === revision)
       $('compare-status').textContent = 'Comparison unavailable: ' + error.message;
@@ -470,6 +521,7 @@ $('history').addEventListener('click', () => setMode('history'));
 $('apply').addEventListener('click', () => loadHistory());
 $('more').addEventListener('click', () => {if (cursor && points.length < MAX_DISPLAY) loadHistory(true);});
 $('position').addEventListener('input', showInspection);
+$('time-cursor').addEventListener('input', updateTimeCursor);
 refreshTracks();
 setInterval(() => {
   ticks++;
