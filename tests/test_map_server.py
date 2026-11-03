@@ -115,6 +115,36 @@ class MapServerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "user:password"):
                 map_server.load_authorization(filename)
 
+    def test_track_ingestion_and_catalogue_are_isolated(self):
+        def send(lat, track):
+            return self.request("POST", "/api/position",
+                                json.dumps({"lat": lat, "lon": 28.0,
+                                            "track_id": track}).encode(),
+                                {"Content-Type": "application/json"})
+
+        self.assertEqual(send(47, "A")[0], 201)
+        self.assertEqual(send(48, "B")[0], 201)
+        self.assertEqual(send(49, "A")[0], 201)
+        status, _, body = self.request("GET", "/api/tracks")
+        self.assertEqual(status, 200)
+        catalogue = json.loads(body)
+        self.assertEqual([t["track_id"] for t in catalogue["tracks"]], ["A", "B"])
+        self.assertEqual([t["count"] for t in catalogue["tracks"]], [2, 1])
+        self.assertFalse(catalogue["truncated"])
+        status, _, body = self.request("GET", "/api/points")
+        self.assertEqual(status, 200)
+        self.assertEqual([p["lat"] for p in json.loads(body)["points"]], [47, 49])
+
+    def test_invalid_track_id_never_persists(self):
+        for invalid in (None, "", "../bad", "a b", "x" * 65, 100):
+            with self.subTest(invalid=invalid):
+                payload = json.dumps({"lat": 47, "lon": 28,
+                                      "track_id": invalid}).encode()
+                self.assertEqual(self.request("POST", "/api/position", payload,
+                                 {"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(json.loads(self.request("GET", "/api/tracks")[2]),
+                         {"tracks": [], "truncated": False})
+
     def test_position_response_and_recent_points_contract(self):
         # The browser and existing HTTP producers depend on these exact keys.
         status, _, body = self.position()

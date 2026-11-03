@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from observation_store import ObservationStore
+from observation_store import ObservationStore, valid_track_id
 
 MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
@@ -116,6 +116,12 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error:
                 return self._json(503, {"error": "observation storage unavailable"})
             return self._json(200, {"points": data})
+        if path == "/api/tracks" and not urlsplit(self.path).query:
+            try:
+                data = self.server.store.tracks()
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         return self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -135,6 +141,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(obj, dict):
                 raise ValueError("JSON object expected")
             lat, lon = obj["lat"], obj["lon"]
+            track_id = obj.get("track_id", "legacy")
+            if not valid_track_id(track_id):
+                return self._json(400, {"error": "invalid track_id"})
             if type(lat) not in (int, float) or type(lon) not in (int, float):
                 raise ValueError("numeric coordinates required")
             if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
@@ -142,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             return self._json(400, {"error": "expected finite lat (-90..90) and lon (-180..180)"})
         try:
-            point = self.server.store.record(lat, lon)
+            point = self.server.store.record(lat, lon, track_id)
         except sqlite3.Error:
             return self._json(503, {"error": "observation storage unavailable"})
         return self._json(201, point)
