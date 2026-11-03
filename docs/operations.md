@@ -1,7 +1,8 @@
 # Running Cartochron with Docker Compose
 
-This is an optional deployment path for the **receiver and map**. Metasploit
-runs separately on the authorized operator's machine. Docker is not required
+This is an optional deployment path for the **receiver and map**. The optional [Cartochron Metasploit adapter](https://github.com/cartochron/cartochron-metasploit)
+runs separately on the authorized operator's machine and is installed from
+its own repository. Docker is not required
 for ordinary local Python use.
 
 ## First start

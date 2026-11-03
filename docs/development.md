@@ -1,8 +1,9 @@
 # Developing and testing Cartochron
 
 The receiver is deliberately small and depends on the Python standard
-library. Ruby and Node.js are needed for the adapter and viewer tests; Docker
-is needed only for the explicit deployment rehearsal. Avoid additional
+library. Node.js is needed for the viewer tests; Docker is needed only for the
+explicit deployment rehearsal. The independent Metasploit adapter and its
+Ruby tests live in [cartochron-metasploit](https://github.com/cartochron/cartochron-metasploit). Avoid additional
 services and test wrappers unless a real failure demands them.
 
 ## Repository layout
@@ -10,18 +11,17 @@ services and test wrappers unless a real failure demands them.
 - `map_server.py`: HTTP routing, authentication, and worker lifecycle
 - `observation_store.py`: SQLite schema, atomic writes, and historical queries
 - `sources.py`: local command-line source enrollment
-- `gps_streamer.rb`: authorized Android Meterpreter post module
 - `index.html`, `viewer.js`, `manual.html`: browser and its built-in help
 - `demo.py`, `replay.py`: synthetic history and local-only HTTP rehearsal
 - `vendor_leaflet.py`: installs the pinned, checksum-verified Leaflet distribution
 - `docs/data-contracts.md`: persisted observations and source/run semantics
 - `docs/api.md`: request, history and pagination reference
-- `tests/`: Python `unittest`, Ruby Minitest, and Node.js built-in tests
+- `tests/`: Python `unittest` and Node.js built-in tests
 
 ## Test commands
 
 ```sh
-make check          # All Python, Ruby and JavaScript suites; missing tools fail
+make check          # Python and JavaScript suites; missing tools fail
 make check-viewer   # JavaScript tests only
 make check-deploy   # Real Docker Compose: builds and uses disposable resources
 ```

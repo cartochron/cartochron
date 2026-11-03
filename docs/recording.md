@@ -6,16 +6,22 @@ For a receiver running in Docker Compose, first complete
 [the operational setup](operations.md) and configure the adapter's
 `MAP_USER`/`MAP_PASSWORD` to match the receiver's `data/auth` file.
 
-To install the module from the repository and load its latest code in
-`msfconsole`:
+Install the optional Android Metasploit module from its **own repository**,
+[cartochron-metasploit](https://github.com/cartochron/cartochron-metasploit):
 
 ```sh
-make install-local
+git clone https://github.com/cartochron/cartochron-metasploit.git ../cartochron-metasploit
+make -C ../cartochron-metasploit check
+make -C ../cartochron-metasploit install
 ```
 
-The module is installed under `~/.msf4/modules/` by default; set `MSF_DIR`
-for an alternative Metasploit module directory. Use `make` to fetch the
-verified Leaflet assets before starting the native receiver.
+The adapter installs `post/android/gather/cartochron` into the Metasploit user
+modules directory. Its README documents `MSF_DIR` for alternative directories,
+job configuration, and removal of the obsolete `gps_streamer.rb` module.
+These commands keep the adapter as a **sibling checkout**; `make -C` executes
+its targets there without leaving the receiver checkout.
+Use `make` in the **Cartochron receiver checkout** to fetch verified Leaflet
+assets before starting the native map server.
 
 ## Local use (default)
 
@@ -32,10 +38,10 @@ In `msfconsole`, after installing the module:
 
 ```text
 msf6 > reload_all
-msf6 > use post/android/gather/gps_streamer
-msf6 post(android/gather/gps_streamer) > set SESSION <id>
-msf6 post(android/gather/gps_streamer) > set INTERVAL 3
-msf6 post(android/gather/gps_streamer) > run -j
+msf6 > use post/android/gather/cartochron
+msf6 post(android/gather/cartochron) > set SESSION <id>
+msf6 post(android/gather/cartochron) > set INTERVAL 3
+msf6 post(android/gather/cartochron) > run -j
 ```
 
 The stream runs continuously. **Use `run -j`, not plain `run`:** Metasploit
@@ -46,7 +52,7 @@ A job is the GPS recording task; a session is the connection to the device.
 They have different IDs and lifecycles. For example:
 
 ```text
-msf6 > jobs -l              # Find the GPS streamer job ID
+msf6 > jobs -l              # Find the Cartochron adapter job ID
 msf6 > sessions -l          # Find the Meterpreter session ID
 msf6 > sessions -i <id>     # Enter the session while GPS streaming continues
 meterpreter > background    # Return to msfconsole, keeping the session open
@@ -198,7 +204,7 @@ Use a device you own or are explicitly authorized to test, and a separate
 persistent test database. Before walking, verify:
 
 1. Start the server, open the map, and confirm it loads locally.
-2. In `msfconsole`, run `reload_all`, select `post/android/gather/gps_streamer`,
+2. In `msfconsole`, run `reload_all`, select `post/android/gather/cartochron`,
    set the correct `SESSION` and `INTERVAL 5`, then `run -j`. Record the
    logged `track_id` in the Metasploit framework log, without publishing raw GPS coordinates.
 3. Verify that the server accepted observations and that this recording run
@@ -231,11 +237,11 @@ stop that job and start a new one with the correct settings. For a Compose
 receiver, use the username and password from `data/auth`:
 
 ```text
-msf6 post(android/gather/gps_streamer) > set ENDPOINT http://127.0.0.1:8765/api/position
-msf6 post(android/gather/gps_streamer) > set MAP_USER operator
-msf6 post(android/gather/gps_streamer) > set MAP_PASSWORD <password-from-data/auth>
-msf6 post(android/gather/gps_streamer) > unset TRACK_ID
-msf6 post(android/gather/gps_streamer) > run -j
+msf6 post(android/gather/cartochron) > set ENDPOINT http://127.0.0.1:8765/api/position
+msf6 post(android/gather/cartochron) > set MAP_USER operator
+msf6 post(android/gather/cartochron) > set MAP_PASSWORD <password-from-data/auth>
+msf6 post(android/gather/cartochron) > unset TRACK_ID
+msf6 post(android/gather/cartochron) > run -j
 ```
 
 These settings apply when the new job starts. If the receiver is on a VPS,
@@ -244,7 +250,7 @@ over plaintext HTTP on an untrusted network. A password entered using
 `set` may appear in Metasploit console history and datastore output, so
 protect them and avoid including them in logs or bug reports.
 
-Use `jobs -l` to find all running GPS streamer jobs and `jobs -k <JobID>` to
+Use `jobs -l` to find all running Cartochron adapter jobs and `jobs -k <JobID>` to
 stop a specific obsolete job. If the log shows two different counter streams
 for the same run ID (for example, `accepted=977` and `accepted=7`), they can
 be independent jobs whose output is interleaved in the framework log. The

@@ -32,11 +32,11 @@ install -d -m 700 "$HOME/.local/share/cartochron"
 python3 map_server.py --db "$HOME/.local/share/cartochron/observations.sqlite3"
 ```
 
-The [recording guide](docs/recording.md) explains how to install the
-Metasploit module (`make install-local`), run a background job, enroll a stable
-source identity, and troubleshoot the framework log. Metasploit and the
-receiver are separate processes; the Android session does not contact the
-receiver directly.
+The optional [Cartochron Metasploit adapter](https://github.com/cartochron/cartochron-metasploit)
+is a **separate repository**, with its own `make install` and Ruby tests.
+The [recording guide](docs/recording.md) explains background jobs, source
+identity, and framework logging. The Metasploit operator submits observations
+to the receiver; the Android session does not contact the receiver directly.
 
 ## Docker Compose: persistent, authenticated receiver
 
@@ -49,7 +49,7 @@ to create `data/auth` and `.env`, then run:
 docker compose up -d --build
 ```
 
-**Compose credentials must be set on the Metasploit streamer separately.**
+**Compose credentials must be set on the external Metasploit adapter separately.**
 When changing credentials, stop the old streamer job and launch another;
 restarting the receiver does not reconfigure an existing Metasploit job.
 See [receiver operations](docs/operations.md) for backups, restore, HTTPS
@@ -73,11 +73,11 @@ receiver to rehearse Live mode.
 ## Testing
 
 ```sh
-make check            # Python, Ruby and JavaScript tests; no silent skips
+make check            # Python and JavaScript tests; no silent skips
 make check-deploy     # Self-contained real Docker Compose integration test
 ```
 
-`make check` requires Python 3, Ruby and Node.js; it does not require Docker.
+`make check` requires Python 3 and Node.js; it does not require Ruby or Docker.
 `make check-deploy` requires Docker Engine and Compose, and creates its own
 disposable project, credentials, and SQLite file. You **do not** need to
 start your regular Compose service before running it. Deployment verification
@@ -85,7 +85,7 @@ does not use or modify your normal observations.
 
 ## Documentation
 
-- [Recording and Metasploit jobs](docs/recording.md): run IDs, source identities,
+- [Recording and external Metasploit adapter](docs/recording.md): run IDs, source identities,
   startup, logging and live-device field checks
 - [Map walkthrough and synthetic demo](docs/walkthrough.md): Live, History,
   gaps, comparisons, time and place inspection
