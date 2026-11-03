@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from observation_store import MAX_RECENT_POINTS, ObservationStore, SCHEMA_VERSION, valid_track_id
 
@@ -28,6 +29,56 @@ class ObservationStoreTest(unittest.TestCase):
                     store.record(47, 28, invalid)
             self.assertTrue(valid_track_id("abc.1-X_y"))
             self.assertEqual(len(store.tracks()["tracks"]), 2)
+        finally:
+            store.close()
+
+    def test_historical_interval_is_half_open_with_stable_cursor(self):
+        store = ObservationStore()
+        try:
+            # Real SQLite writes with an injected clock: two equal timestamps
+            # must remain distinct and pagination must not repeat either one.
+            with patch("observation_store.time.time_ns", side_effect=[
+                1_700_000_000_000_000_000,
+                1_700_000_000_000_000_000,
+                1_700_000_000_100_000_000,
+                1_700_000_000_100_000_000,
+            ]):
+                store.record(47, 28, "A")
+                store.record(48, 28, "A")
+                store.record(90, 28, "B")
+                store.record(49, 28, "A")
+            first = store.history("A", from_ms=1700000000000,
+                                  to_ms=1700000000100, limit=1)
+            self.assertEqual([p["lat"] for p in first["points"]], [47])
+            self.assertTrue(first["truncated"])
+            self.assertIsNotNone(first["next_cursor"])
+            values = list(first["points"])
+            page = first
+            while page["next_cursor"] is not None:
+                cursor = tuple(map(int, page["next_cursor"].split(":")))
+                page = store.history("A", from_ms=1700000000000,
+                                     to_ms=1700000000100, limit=1,
+                                     after=cursor)
+                values.extend(page["points"])
+            self.assertEqual([p["lat"] for p in values], [47, 48])
+            self.assertEqual(len({p["id"] for p in values}), 2)
+            self.assertFalse(page["truncated"])
+            self.assertIsNone(page["next_cursor"])
+            self.assertEqual([p["lat"] for p in store.history("A", to_ms=1700000000101)["points"]],
+                             [47, 48, 49])
+            self.assertEqual(store.history("missing")["points"], [])
+        finally:
+            store.close()
+
+    def test_track_catalogue_is_bounded_and_reports_truncation(self):
+        store = ObservationStore(filename=None)
+        try:
+            for number in range(101):
+                store.record(47, 28, f"run-{number}")
+            listing = store.tracks()
+            self.assertEqual(len(listing["tracks"]), 100)
+            self.assertTrue(listing["truncated"])
+            self.assertEqual(listing["tracks"][0]["track_id"], "run-100")
         finally:
             store.close()
 

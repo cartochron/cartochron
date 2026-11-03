@@ -7,12 +7,14 @@ import hmac
 import stat
 import json
 import math
+import re
 import sqlite3
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from observation_store import ObservationStore, valid_track_id
+from observation_store import MAX_RECENT_POINTS, ObservationStore, valid_track_id
 
 MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
@@ -28,6 +30,65 @@ _LEAFLET_FILES = {
         )
     },
 }
+
+# A timestamp accepted by the history API must identify a millisecond exactly.
+_RFC3339_MS = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,3})?(?:Z|[+-][0-9]{2}:[0-9]{2})\Z"
+)
+_CURSOR = re.compile(r"(-?[0-9]{1,19}):([1-9][0-9]{0,18})\Z")
+
+
+def parse_history_query(query):
+    """Validate bounded UTC intervals; reject ambiguous or repeated parameters."""
+    if len(query) > 512:
+        raise ValueError("query is too long")
+    try:
+        params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=5)
+    except ValueError as exc:
+        raise ValueError("invalid query string") from exc
+    if set(params) - {"track_id", "from", "to", "limit", "cursor"} or any(
+        len(values) != 1 for values in params.values()
+    ):
+        raise ValueError("unknown or repeated query parameter")
+    track_id = params.get("track_id", [None])[0]
+    if not valid_track_id(track_id):
+        raise ValueError("track_id is required and must be a valid identifier")
+
+    def timestamp(name):
+        value = params.get(name, [None])[0]
+        if value is None:
+            return None
+        if not _RFC3339_MS.fullmatch(value):
+            raise ValueError(f"{name} must be an RFC3339 timestamp with millisecond precision")
+        try:
+            date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            delta = date.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError(f"invalid {name} timestamp") from exc
+        return ((delta.days * 86400 + delta.seconds) * 1000
+                + delta.microseconds // 1000)
+
+    from_ms, to_ms = timestamp("from"), timestamp("to")
+    if from_ms is not None and to_ms is not None and from_ms >= to_ms:
+        raise ValueError("from must precede to")
+
+    raw_limit = params.get("limit", [str(MAX_RECENT_POINTS)])[0]
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", raw_limit) or int(raw_limit) > MAX_RECENT_POINTS:
+        raise ValueError(f"limit must be between 1 and {MAX_RECENT_POINTS}")
+    raw_cursor = params.get("cursor", [None])[0]
+    after = None
+    if raw_cursor is not None:
+        match = _CURSOR.fullmatch(raw_cursor)
+        if match is None:
+            raise ValueError("invalid cursor")
+        after = tuple(int(value) for value in match.groups())
+        if any(value > (1 << 63) - 1 or value < -(1 << 63) for value in after):
+            raise ValueError("cursor outside SQLite integer range")
+    return {"track_id": track_id, "from_ms": from_ms, "to_ms": to_ms,
+            "limit": int(raw_limit), "after": after}
+
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
@@ -111,11 +172,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
         if path == "/api/points":
+            query = urlsplit(self.path).query
             try:
-                data = self.server.store.recent()
+                if query:
+                    data = self.server.store.history(**parse_history_query(query))
+                else:
+                    data = {"points": self.server.store.recent()}
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
             except sqlite3.Error:
                 return self._json(503, {"error": "observation storage unavailable"})
-            return self._json(200, {"points": data})
+            return self._json(200, data)
         if path == "/api/tracks" and not urlsplit(self.path).query:
             try:
                 data = self.server.store.tracks()
@@ -158,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         # Do not log coordinates or request bodies.
-        if self.path == "/api/position":
+        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/tracks"):
             return
         super().log_message(fmt, *args)
 

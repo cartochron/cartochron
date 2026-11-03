@@ -8,6 +8,8 @@ import json
 import threading
 from datetime import datetime
 import unittest
+from unittest.mock import patch
+from urllib.parse import urlencode
 
 import map_server
 
@@ -144,6 +146,62 @@ class MapServerTest(unittest.TestCase):
                                  {"Content-Type": "application/json"})[0], 400)
         self.assertEqual(json.loads(self.request("GET", "/api/tracks")[2]),
                          {"tracks": [], "truncated": False})
+
+    def test_time_interval_query_and_page_cursor(self):
+        t0 = 1_700_000_000_000_000_000
+        def position(lat, track):
+            payload = json.dumps({"lat": lat, "lon": 28, "track_id": track}).encode()
+            return self.request("POST", "/api/position", payload,
+                                {"Content-Type": "application/json"})
+
+        with patch("observation_store.time.time_ns", side_effect=[
+            t0, t0, t0 + 100_000_000, t0 + 100_000_000,
+        ]):
+            for lat, track in ((47, "A"), (48, "A"), (90, "B"), (49, "A")):
+                self.assertEqual(position(lat, track)[0], 201)
+        start = "2023-11-14T22:13:20Z"
+        end = "2023-11-14T22:13:20.100Z"
+        params = {"track_id": "A", "from": start, "to": end, "limit": "1"}
+        page1 = json.loads(self.request("GET", "/api/points?" + urlencode(params))[2])
+        self.assertEqual([p["lat"] for p in page1["points"]], [47])
+        self.assertTrue(page1["truncated"])
+        self.assertIn("received_ms", page1["points"][0])
+        page2 = json.loads(self.request("GET", "/api/points?" + urlencode(
+            {**params, "cursor": page1["next_cursor"]}))[2])
+        self.assertEqual([p["lat"] for p in page2["points"]], [48])
+        self.assertFalse(page2["truncated"])
+        self.assertIsNone(page2["next_cursor"])
+        self.assertNotEqual(page1["points"][0]["id"], page2["points"][0]["id"])
+        # The upper boundary excludes points received exactly at 'to'.
+        after_end = json.loads(self.request("GET", "/api/points?" + urlencode(
+            {"track_id": "A", "from": end}))[2])
+        self.assertEqual([p["lat"] for p in after_end["points"]], [49])
+
+    def test_historical_parameters_fail_closed(self):
+        for query in (
+            "from=2026-11-02T10%3A00%3A00Z",
+            "track_id=", "track_id=A&track_id=B", "track_id=A&junk=yes",
+            "track_id=A&limit=0", "track_id=A&limit=1001",
+            "track_id=A&limit=-1", "track_id=A&cursor=abc",
+            "track_id=A&cursor=999999999999999999999:1",
+            "track_id=A&from=2026-11-02T00%3A00%3A00",
+            "track_id=A&from=2026-11-02T00%3A00%3A00.1234Z",
+            "track_id=A&to=2000-99-99T00%3A00%3A00Z",
+            "track_id=A&from=2026-11-03T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z",
+        ):
+            with self.subTest(query=query):
+                status, _, body = self.request("GET", "/api/points?" + query)
+                self.assertEqual(status, 400, body)
+
+    def test_historical_queries_require_authentication(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.start_server(authorization="Basic YTpi")
+        self.assertEqual(self.request("GET", "/api/tracks")[0], 401)
+        self.assertEqual(self.request("GET", "/api/points?track_id=legacy")[0], 401)
+        self.assertEqual(self.request("GET", "/api/points?track_id=legacy",
+                                      headers={"Authorization": "Basic YTpi"})[0], 200)
 
     def test_position_response_and_recent_points_contract(self):
         # The browser and existing HTTP producers depend on these exact keys.

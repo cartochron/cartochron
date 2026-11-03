@@ -93,10 +93,19 @@ class ObservationStore:
             self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @staticmethod
-    def _point(row):
+    def _timestamp(received_ms, timespec="seconds"):
+        return datetime.fromtimestamp(received_ms / 1000, timezone.utc).isoformat(timespec=timespec)
+
+    @classmethod
+    def _point(cls, row):
         received_ms, lat, lon = row
-        timestamp = datetime.fromtimestamp(received_ms / 1000, timezone.utc)
-        return {"lat": lat, "lon": lon, "time": timestamp.isoformat(timespec="seconds")}
+        return {"lat": lat, "lon": lon, "time": cls._timestamp(received_ms)}
+
+    @classmethod
+    def _historical_point(cls, row):
+        point_id, received_ms, lat, lon = row
+        return {"id": point_id, "received_ms": received_ms,
+                "lat": lat, "lon": lon, "time": cls._timestamp(received_ms, "milliseconds")}
 
     def record(self, lat, lon, track_id="legacy"):
         """Commit first; only then return an acknowledgement to the HTTP layer."""
@@ -147,11 +156,46 @@ class ObservationStore:
         return {
             "tracks": [
                 {"track_id": track_id, "count": count,
-                 "first": self._point((first_ms, 0, 0))["time"],
-                 "last": self._point((last_ms, 0, 0))["time"]}
+                 "first": self._timestamp(first_ms, "milliseconds"),
+                 "last": self._timestamp(last_ms, "milliseconds")}
                 for track_id, count, first_ms, last_ms in rows[:MAX_TRACKS]
             ],
             "truncated": len(rows) > MAX_TRACKS,
+        }
+
+    def history(self, track_id, *, from_ms=None, to_ms=None, limit=MAX_RECENT_POINTS,
+                after=None):
+        """Time-ordered, bounded track query; `after` is an (ms, row-id) cursor.
+
+        An extra row distinguishes an exact page from a truncated one. The
+        cursor is a position, not an authenticated capability or snapshot ID.
+        """
+        if not valid_track_id(track_id):
+            raise ValueError("invalid track_id")
+        if type(limit) is not int or not 1 <= limit <= MAX_RECENT_POINTS:
+            raise ValueError("invalid limit")
+        clauses, params = ["track_id = ?"], [track_id]
+        if from_ms is not None:
+            clauses.append("received_ms >= ?")
+            params.append(from_ms)
+        if to_ms is not None:
+            clauses.append("received_ms < ?")
+            params.append(to_ms)
+        if after is not None:
+            clauses.append("(received_ms, id) > (?, ?)")
+            params.extend(after)
+        sql = ("SELECT id, received_ms, lat, lon FROM observations WHERE "
+               + " AND ".join(clauses)
+               + " ORDER BY received_ms, id LIMIT ?")
+        with self._lock:
+            rows = self._db.execute(sql, (*params, limit + 1)).fetchall()
+        more = len(rows) > limit
+        selected = rows[:limit]
+        return {
+            "track_id": track_id,
+            "points": [self._historical_point(row) for row in selected],
+            "truncated": more,
+            "next_cursor": f"{selected[-1][1]}:{selected[-1][0]}" if more else None,
         }
 
     def close(self):
