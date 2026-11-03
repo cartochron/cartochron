@@ -118,6 +118,7 @@ class Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "GPSMapLab/1.0"
+    timeout = 10  # Do not let an incomplete request occupy a worker indefinitely.
 
     def _reply(self, status, body, content_type, extra_headers=()):
         self.send_response(status)
@@ -237,7 +238,13 @@ class Handler(BaseHTTPRequestHandler):
             size = int(self.headers.get("Content-Length", ""))
             if size < 1 or size > MAX_BODY:
                 return self._json(413, {"error": "invalid body size"})
-            obj = json.loads(self.rfile.read(size))
+            try:
+                body = self.rfile.read(size)
+            except TimeoutError:
+                return self._json(408, {"error": "request body timeout"})
+            if len(body) != size:
+                return self._json(400, {"error": "incomplete request body"})
+            obj = json.loads(body)
             if not isinstance(obj, dict):
                 raise ValueError("JSON object expected")
             lat, lon = obj["lat"], obj["lon"]

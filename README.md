@@ -561,6 +561,8 @@ shell command history.
 - Leaflet assets are vendored locally. An Internet connection is still needed
   to load OpenStreetMap tiles. Tile requests can reveal the viewed area to the
   tile provider.
+- The built-in receiver limits a request-body wait to 10 seconds and rejects
+  incomplete payloads; this is not a concurrency or rate limit.
 - A public Python `ThreadingHTTPServer` is not a hardened production HTTP
   frontend. Use a reverse proxy, firewall, and sensible connection limits.
 

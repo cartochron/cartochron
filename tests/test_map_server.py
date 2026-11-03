@@ -5,6 +5,7 @@ import os
 import tempfile
 import http.client
 import json
+import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -16,8 +17,8 @@ import map_server
 
 
 class MapServerTest(unittest.TestCase):
-    def start_server(self, bind="127.0.0.1", **kwargs):
-        self.server = map_server.Server((bind, 0), map_server.Handler, **kwargs)
+    def start_server(self, bind="127.0.0.1", handler=map_server.Handler, **kwargs):
+        self.server = map_server.Server((bind, 0), handler, **kwargs)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -325,6 +326,45 @@ class MapServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/api/points")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body), {"points": []})
+
+    def test_truncated_json_body_cannot_be_acknowledged(self):
+        # A complete JSON object may arrive inside an incomplete HTTP body.
+        # Receipt of the closing brace is not receipt of Content-Length bytes.
+        body = b'{"lat":47,"lon":28,"track_id":"partial"}'
+        header = (f"POST /api/position HTTP/1.1\r\n"
+                  f"Host: localhost:{self.server.server_port}\r\n"
+                  f"Content-Type: application/json\r\n"
+                  f"Content-Length: {len(body) + 9}\r\n"
+                  f"Connection: close\r\n\r\n").encode("ascii")
+        with socket.create_connection(("127.0.0.1", self.server.server_port), timeout=2) as sock:
+            sock.sendall(header + body)
+            sock.shutdown(socket.SHUT_WR)
+            response = sock.recv(4096)
+        self.assertIn(b" 400 ", response)
+        self.assertEqual(self.server.store.history("partial")["points"], [])
+
+    def test_incomplete_body_times_out_without_persisting(self):
+        # Use a short timeout in this test, without waiting ten seconds.
+        class FastTimeout(map_server.Handler):
+            timeout = 0.5
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.start_server(handler=FastTimeout)
+        body = b'{"lat":47,"lon":28,"track_id":"stalled"}'
+        header = (f"POST /api/position HTTP/1.1\r\n"
+                  f"Host: localhost:{self.server.server_port}\r\n"
+                  f"Content-Type: application/json\r\n"
+                  f"Content-Length: {len(body) + 9}\r\n"
+                  f"Connection: close\r\n\r\n").encode("ascii")
+        with socket.create_connection(("127.0.0.1", self.server.server_port), timeout=3) as sock:
+            sock.sendall(header + body)
+            response = sock.recv(4096)
+        self.assertIn(b" 408 ", response)
+        self.assertEqual(self.server.store.history("stalled")["points"], [])
+        # A timed-out request must not poison the next connection.
+        self.assertEqual(self.position()[0], 201)
 
     def test_ingestion_method_and_content_type_are_checked(self):
         self.assertEqual(self.request("GET", "/api/position")[0], 404)
