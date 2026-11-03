@@ -5,8 +5,8 @@ research. It started as `msf-gps-map`, and retains its small HTTP interface
 and Metasploit integration. The standalone server can run with an in-memory
 SQLite database or preserve observations on disk. Each recording run has a
 track identifier, and the HTTP API supports bounded historical queries.
-The Leaflet viewer still shows the latest active run; time navigation is a
-separate upcoming frontend change. Repository and command filenames remain
+The Leaflet viewer supports selecting tracks, inspecting live positions, and
+exploring historical time intervals. Repository and server filenames remain
 unchanged.
 
 ## How it works
@@ -15,10 +15,10 @@ unchanged.
    `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
 2. The module posts `{"lat": ..., "lon": ..., "track_id": ...}` to the
    server. A new random `track_id` is generated once per Metasploit job.
-3. `map_server.py` records the observations in SQLite, in RAM by default or
-   in a persistent database when `--db` is specified. The browser polls
-   `GET /api/points` for the latest 1,000 observations **from the most recently
-   updated run**, never connecting points from unrelated runs.
+3. `map_server.py` records observations in SQLite, in RAM by default or
+   in a persistent database when `--db` is specified. The browser selects a
+   run, follows its latest positions in Live mode, or reads a fixed time
+   interval in History mode. Observations from different runs are not joined.
 
 The Metasploit operator sends HTTP requests directly to the map server.
 The Android session does not connect to the map server itself.
@@ -90,15 +90,72 @@ Protect the database, its directory, and any backups: location history is
 sensitive data. Do not commit database files to Git.
 
 **Persistence and map history are different features.** With `--db`, every
-accepted observation remains stored. The existing unfiltered `GET /api/points`
-and Leaflet map show up to 1,000 recent points from the most recently updated
-run. The historical query API can read other runs and time periods; the
-interactive timeline and track selector have not been implemented yet.
+accepted observation remains stored. The browser can select an interval from
+that history; Live mode follows at most 1,000 recent points from its selected
+run. In RAM mode, only the latest 1,000 observations *across all runs* survive.
 No older rows are silently deleted from a persistent database.
 
 For backups, stop the server before copying the database file, or use SQLite's
 backup facilities while it is running. There is no retention or automatic
 pruning in persistent mode; the operator owns storage and deletion policy.
+
+## Map navigation
+
+The track selector lists the 100 most recently updated runs (the catalogue
+reports when additional runs exist). When the page opens, it initially selects
+the most recently updated run. The selection remains pinned even if another
+producer starts recording.
+
+- **Live** polls up to 1,000 recent observations for the selected run, follows
+  its last received position, and shows its receipt timestamp. No active
+  Android session is necessary to view previously received data.
+- **History** lets you set **From** and **To** using the browser's *local*
+  clock. Press **Show interval** to query `[from, to)`; the server converts the
+  timestamps to UTC. Use **Inspect point** to examine the position and receipt
+  time of each displayed observation.
+- The browser loads 1,000 historical points at a time. **Load more** fetches
+  the next page without losing earlier points. After 5,000 displayed points,
+  narrow the interval to inspect the remainder. The interface reports partial
+  results; it does not silently simplify a route or claim completeness.
+- A gap greater than **10 minutes between consecutive receipt times** breaks
+  the line into separate route segments. A straight line between sparse GPS
+  fixes is only a visualization, not proof of the path traveled. Green marks
+  the first displayed fix, orange the last, and purple the inspected fix.
+
+History uses the server's **receipt times**. These are not guaranteed to equal
+GPS acquisition times. Map tiles are fetched separately from OpenStreetMap;
+an Internet connection is needed for the background map.
+
+## Visual demo (no Metasploit required)
+
+Create a **new, disposable** SQLite database containing synthetic observations:
+
+```sh
+make                       # Fetch Leaflet assets once, if necessary
+python3 demo.py --db /tmp/cartochron-demo.sqlite3
+python3 map_server.py --db /tmp/cartochron-demo.sqlite3
+```
+
+Open <http://127.0.0.1:8765/>. The demo has four recording runs:
+
+| Run | What to inspect |
+| --- | --- |
+| `demo-city-loop` | 75 fixes; History shows two route segments across a 21.5-minute gap |
+| `demo-river` | 30 fixes in a different city; selecting it never joins the first route |
+| `demo-single-point` | One fix, with no fabricated polyline |
+| `demo-long-history` | 1,205 fixes; History shows **Load more** after the first 1,000 |
+
+The fixture uses dates relative to when it is generated, so the default
+historical interval includes the example points. `demo.py` refuses to
+overwrite an existing file; choose a fresh path if you want to regenerate it.
+It writes directly to a new SQLite database rather than pretending to be a
+real device. Never run the demo against an existing observation database.
+
+`make check` tests the database fixture and API automatically. The demo is for
+manual browser inspection: select a track, change the time range, move the
+inspection slider, and verify the path visually. It requires no HTTP posting,
+credentials, real GPS hardware, or Metasploit session. To dispose of it, stop
+the server and delete only the demo SQLite file.
 
 ## VPS / network use
 
@@ -195,7 +252,8 @@ The API has three relevant GET operations:
 
 | Endpoint | Response |
 | --- | --- |
-| `GET /api/points` | Original `{"points": [...]}` response, now limited to a single most recently updated run |
+| `GET /api/points` | Original `{"points": [...]}` response, from the most recently updated run |
+| `GET /api/points/recent?track_id=...` | Up to 1,000 newest points for an explicitly selected run (used by Live mode) |
 | `GET /api/tracks` | Up to 100 run summaries, with counts and first/last receipt times; `truncated` reports if more exist |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
 
@@ -235,10 +293,9 @@ interval again with `cursor=<next_cursor>` to fetch the next page. Stop when
 observations arrive during paging, the result set can change. Large histories
 are never silently truncated without reporting that another page exists.
 
-The current Leaflet page still follows the most recently ingested run; with
-multiple simultaneously updating runs it may switch between them. A track
-selector and historical timeline belong to the next frontend stage. For now,
-use the query API to retrieve individual runs and time periods.
+The Leaflet page uses these APIs for track selection and historical navigation.
+The unfiltered endpoint remains available for older clients and still follows
+the most recently ingested run.
 
 ## Manual ingestion test
 
@@ -267,9 +324,10 @@ shell command history.
   RAM and erased when the server exits. With `--db`, all accepted observations
   are retained on disk; no automatic retention policy is imposed.
 - Unfiltered `GET /api/points` returns the latest 1,000 observations from the
-  currently most recently updated run. Authentication protects the viewer and
-  writer together, not as separate users or roles. Track IDs are not access
-  controls; an authenticated viewer can query every track.
+  most recently updated run (backward compatibility). The viewer uses the
+  explicitly selected run. Authentication protects the viewer and writer
+  together, not as separate roles. Track IDs are not access controls; an
+  authenticated viewer can query every track.
 - The server checks Host and Origin headers. Local unauthenticated use retains
   strict loopback Host checking; remote Host names are accepted for network
   listeners and authenticated reverse-proxy deployments.
@@ -284,7 +342,9 @@ shell command history.
 ```text
 map_server.py          Python HTTP server and observation API
 observation_store.py   SQLite storage (memory or disk)
-index.html             Leaflet map viewer
+index.html             Leaflet map page and controls
+viewer.js              Live/history UI logic and map rendering
+demo.py                Generate isolated synthetic browser fixtures
 gps_streamer.rb         Metasploit Android post module
 vendor_leaflet.py      Downloads and verifies pinned Leaflet assets
 tests/                 Python HTTP and Ruby transport tests
