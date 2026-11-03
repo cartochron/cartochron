@@ -151,13 +151,34 @@ test('history overlay separates runs and labels their observations independently
   ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
   await ui.exec('loadComparison()');
   assert.equal(ui.group.layers.filter(layer => layer.type === 'polyline').length, 1);
-  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 1);
+  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 2);
   const overlayNode = ui.comparison.layers.find(layer => layer.type === 'circle');
   assert.ok(overlayNode.tooltip.textContent.includes('run-B'));
   overlayNode.events.click();
   assert.match(ui.popup.content.textContent, /run-B/);
   assert.equal(ui.element('position').value, '0'); // Overlay does not move primary slider.
   assert.equal(ui.element('compare-status').textContent, '2 overlay fixes');
+});
+
+test('overlay is violet with dark casing, and remains clickable over map tiles', async () => {
+  const ui = viewer();
+  ui.render([point(0), point(1)], 'history', 'run-A');
+  ui.context.fetch = async () => ({
+    ok: true, json: async () => ({points: [point(0), point(1)], next_cursor: null}),
+  });
+  ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
+  await ui.exec('loadComparison()');
+  const lines = ui.comparison.layers.filter(l => l.type === 'polyline');
+  const dot = ui.comparison.layers.find(l => l.type === 'circle');
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].options.interactive, false);
+  assert.ok(lines[0].options.weight > lines[1].options.weight);
+  assert.equal(lines[1].options.color, '#8724d5');
+  assert.equal(dot.options.fillColor, lines[1].options.color);
+  assert.equal(dot.options.color, lines[0].options.color);
+  assert.notEqual(lines[1].options.color, '#f8b449');
+  lines[1].events.click({latlng: {lat: 47.001, lng: 28.001}});
+  assert.match(ui.popup.content.textContent, /run-B/);
 });
 
 test('a single recorded fix gets one interactive node but no invented route', () => {
@@ -194,7 +215,7 @@ test('Entire run overlays old tracks and fits both tracks into the map', async (
   assert.equal(query.searchParams.get('track_id'), 'demo-long-history');
   assert.equal(query.searchParams.has('from'), false);
   assert.equal(query.searchParams.has('to'), false);
-  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 1);
+  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 2);
   assert.equal(ui.element('compare-time-control').hidden, false);
   assert.equal(ui.element('compare-status').textContent, '2 overlay fixes');
   assert.equal(ui.fitted.length, 2); // Primary on selection; union after overlay load.

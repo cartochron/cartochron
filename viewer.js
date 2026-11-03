@@ -9,6 +9,8 @@ const GAP_MS = 10 * 60 * 1000; // Don't invent a route across a recording gap.
 const PAGE_SIZE = 1000;
 const MAX_DISPLAY = 5000;
 const MAX_NODES = 140; // Keep long routes inspectable without thousands of DOM/map layers.
+const OVERLAY_COLOR = '#8724d5'; // Violet stays distinct from OSM's amber roads.
+const OVERLAY_OUTLINE = '#162735'; // Dark casing works over light and busy tiles.
 const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
@@ -321,8 +323,14 @@ function renderComparison(observations, track) {
       .setContent(pointText(p, index, track, observations.length)).openOn(map);
   };
   for (const segment of segments) {
-    L.polyline(segment.map(index => [observations[index].lat, observations[index].lon]), {
-      color: '#f8b449', weight: 3
+    const coordinates = segment.map(index => [observations[index].lat, observations[index].lon]);
+    // A dark casing keeps the comparison legible over yellow roads and pale
+    // map tiles. Only the visible violet line handles clicks.
+    L.polyline(coordinates, {
+      color: OVERLAY_OUTLINE, weight: 7, opacity: 0.9, interactive: false
+    }).addTo(compareLayer);
+    L.polyline(coordinates, {
+      color: OVERLAY_COLOR, weight: 4, opacity: 1
     }).on('click', event => show(nearestIndex(event, segment, observations))).addTo(compareLayer);
   }
   const stride = Math.max(1, Math.ceil(observations.length / MAX_NODES));
@@ -330,8 +338,8 @@ function renderComparison(observations, track) {
     if (index % stride !== 0 && !ends.has(index)) continue;
     const p = observations[index];
     L.circleMarker([p.lat, p.lon], {
-      radius: 3, weight: 1, color: '#edf2f5',
-      fillColor: '#f8b449', fillOpacity: 0.9, bubblingMouseEvents: false
+      radius: 4, weight: 2, color: OVERLAY_OUTLINE,
+      fillColor: OVERLAY_COLOR, fillOpacity: 1, bubblingMouseEvents: false
     }).bindTooltip(pointText(p, index, track, observations.length))
       .on('click', () => show(index)).addTo(compareLayer);
   }

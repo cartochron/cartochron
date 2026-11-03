@@ -161,7 +161,8 @@ colors, and both sides of recording gaps remain visible. Long tracks display
 fewer dots to avoid overloading the map; clicking the line still locates fixes
 between them. Live mode opens an inspection popup on click.
 
-In **History** mode, **Overlay run** draws one other recording run in amber.
+In **History** mode, **Overlay run** draws one other recording run in violet,
+with a dark outline so the route stays visible over roads and pale map tiles.
 **Overlay time** defaults to **Entire run**, so a run recorded yesterday can
 be compared geographically with a run recorded today. Choose **Same interval**
 to show only overlay observations in the primary run's selected `[from, to)`
