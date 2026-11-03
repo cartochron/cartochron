@@ -7,13 +7,13 @@ import hmac
 import stat
 import json
 import math
-import threading
-from datetime import datetime, timezone
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-MAX_POINTS = 1000
+from observation_store import ObservationStore
+
 MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
 _HTML = (_ROOT / "index.html").read_bytes()
@@ -29,18 +29,24 @@ _LEAFLET_FILES = {
     },
 }
 
-_points = []
-_lock = threading.Lock()
-
-
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, handler, *, authorization=None):
-        super().__init__(address, handler)
+    def __init__(self, address, handler, *, authorization=None, database=None):
+        self.store = ObservationStore(database)
+        try:
+            super().__init__(address, handler)
+        except Exception:
+            self.store.close()
+            raise
         self.loopback_only = address[0] in ("127.0.0.1", "localhost")
         self.authorization = authorization
+
+    def server_close(self):
+        super().server_close()
+        self.store.close()
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -105,8 +111,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
         if path == "/api/points":
-            with _lock:
-                data = list(_points)
+            try:
+                data = self.server.store.recent()
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
             return self._json(200, {"points": data})
         return self._json(404, {"error": "not found"})
 
@@ -131,15 +139,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("numeric coordinates required")
             if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
                 raise ValueError("coordinates out of range")
-            point = {
-                "lat": lat, "lon": lon,
-                "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            }
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             return self._json(400, {"error": "expected finite lat (-90..90) and lon (-180..180)"})
-        with _lock:
-            _points.append(point)
-            del _points[:-MAX_POINTS]
+        try:
+            point = self.server.store.record(lat, lon)
+        except sqlite3.Error:
+            return self._json(503, {"error": "observation storage unavailable"})
         return self._json(201, point)
 
     def log_message(self, fmt, *args):
@@ -190,6 +195,8 @@ def main():
                         help="TCP listening port (default: 8765)")
     parser.add_argument("--auth-file", metavar="FILE",
                         help="private file containing user:password (HTTP Basic authentication)")
+    parser.add_argument("--db", metavar="FILE",
+                        help="persist observations in a private SQLite database (default: RAM only)")
     args = parser.parse_args()
     try:
         authorization = load_authorization(args.auth_file) if args.auth_file else None
@@ -198,16 +205,22 @@ def main():
     if not (_ROOT / "vendor/leaflet/leaflet.js").is_file() or not (_ROOT / "vendor/leaflet/leaflet.css").is_file():
         parser.error("Leaflet assets missing; run: python3 vendor_leaflet.py")
     print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
-    print("Observations are held in RAM and erased when this program exits.", flush=True)
+    if args.db:
+        print("Recording observations in SQLite (persistent).", flush=True)
+    else:
+        print("Observations are held in RAM and erased when this program exits.", flush=True)
     if args.bind not in ("127.0.0.1", "localhost"):
         print("WARNING: HTTP traffic is not encrypted; use HTTPS or a private network.", flush=True)
         if authorization is None:
             print("WARNING: map and ingestion endpoints are publicly accessible without authentication.", flush=True)
     try:
-        with Server((args.bind, args.port), Handler, authorization=authorization) as server:
+        with Server((args.bind, args.port), Handler, authorization=authorization,
+                    database=args.db) as server:
             server.serve_forever()
     except KeyboardInterrupt:
         pass
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

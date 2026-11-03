@@ -17,8 +17,6 @@ class MapServerTest(unittest.TestCase):
         self.server = map_server.Server((bind, 0), map_server.Handler, **kwargs)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        with map_server._lock:
-            map_server._points.clear()
 
     def setUp(self):
         self.start_server()
