@@ -1,4 +1,4 @@
-/* Cartochron browser: one selected track, either live or a fixed time interval.
+/* Cartochron browser: one focused track, plus optional comparison layers.
  * Historical pages are intentionally bounded; a partial track is never
  * presented as though the entire interval had been loaded.
  */
@@ -9,20 +9,22 @@ const GAP_MS = 10 * 60 * 1000; // Don't invent a route across a recording gap.
 const PAGE_SIZE = 1000;
 const MAX_DISPLAY = 5000;
 const MAX_NODES = 140; // Keep long routes inspectable without thousands of DOM/map layers.
-const OVERLAY_COLOR = '#8724d5'; // Violet stays distinct from OSM's amber roads.
+const OVERLAY_COLORS = ['#8724d5', '#007c78', '#ca325a'];
 const OVERLAY_OUTLINE = '#162735'; // Dark casing works over light and busy tiles.
+const MAX_OVERLAYS = 3;
 const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 const layer = L.layerGroup().addTo(map);
-const compareLayer = L.layerGroup().addTo(map);
+const overlayLayers = new Map();
 
 let catalogue = [];
 let selectedTrack = '';
-let compareTrack = '';
-let compareGeneration = 0;
+const visibleOverlays = new Set();
+const overlayPoints = new Map();
+let overlayGeneration = 0;
 let mode = 'live';
 let points = [];
 let cursor = null;
@@ -58,8 +60,10 @@ function clearView() {
   cursor = null;
   lastSignature = '';
   layer.clearLayers();
-  compareGeneration++;
-  compareLayer.clearLayers();
+  overlayGeneration++;
+  for (const layer of overlayLayers.values()) {layer.clearLayers(); map.removeLayer(layer);}
+  overlayLayers.clear();
+  overlayPoints.clear();
   $('compare-status').textContent = '';
   $('inspect').hidden = true;
   $('more').hidden = true;
@@ -271,20 +275,8 @@ async function refreshTracks() {
       }
       select.value = selectedTrack;
     }
-    const secondary = $('compare');
-    secondary.replaceChildren();
-    secondary.add(new Option('None', ''));
-    for (const track of catalogue) {
-      if (track.track_id !== selectedTrack) {
-        secondary.add(new Option(track.track_id, track.track_id));
-      }
-    }
-    if (compareTrack === selectedTrack) compareTrack = '';
-    if (compareTrack && !catalogue.some(t => t.track_id === compareTrack)) {
-      secondary.add(new Option(compareTrack + ' (not in recent list)', compareTrack));
-    }
-    secondary.value = compareTrack;
-    $('compare-time-control').hidden = !compareTrack;
+    visibleOverlays.delete(selectedTrack);
+    renderLayerPanel();
     if (result.truncated) $('track').title = 'Showing the 100 most recently updated runs';
     else $('track').title = '';
     if (selectedTrack !== previous) {
@@ -337,7 +329,7 @@ async function loadHistory(more = false) {
     points = more ? points.concat(result.points) : result.points;
     cursor = result.next_cursor;
     render(firstPage);
-    if (firstPage) loadComparison(); // Fit both routes only after the primary has rendered.
+    if (firstPage) loadOverlays(); // Refit both/all routes after the focused run renders.
     const capped = points.length >= MAX_DISPLAY && cursor;
     $('more').hidden = !cursor || Boolean(capped);
     $('page-status').textContent = capped
@@ -349,8 +341,46 @@ async function loadHistory(more = false) {
   } finally { $('more').disabled = false; }
 }
 
-function renderComparison(observations, track) {
-  compareLayer.clearLayers();
+function renderLayerPanel() {
+  const panel = $('layers-list');
+  panel.replaceChildren();
+  for (const record of catalogue) {
+    const track = record.track_id;
+    const row = document.createElement('label');
+    row.className = 'track-layer';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = track === selectedTrack || visibleOverlays.has(track);
+    input.disabled = track === selectedTrack;
+    input.addEventListener('change', () => {
+      if (input.checked && visibleOverlays.size >= MAX_OVERLAYS) {
+        input.checked = false;
+        $('compare-status').textContent = `Up to ${MAX_OVERLAYS + 1} runs at once; hide another first.`;
+        return;
+      }
+      if (input.checked) visibleOverlays.add(track);
+      else visibleOverlays.delete(track);
+      renderLayerPanel();
+      loadOverlays();
+    });
+    row.appendChild(input);
+    const label = document.createElement('span');
+    label.textContent = track === selectedTrack ? `${track} (focused)` : track;
+    row.appendChild(label);
+    panel.appendChild(row);
+  }
+  $('layer-count').textContent = `${visibleOverlays.size + (selectedTrack ? 1 : 0)} visible`;
+}
+
+function clearOverlayLayers() {
+  for (const item of overlayLayers.values()) {item.clearLayers(); map.removeLayer(item);}
+  overlayLayers.clear();
+  overlayPoints.clear();
+}
+
+function renderOverlay(observations, track, color) {
+  const group = L.layerGroup().addTo(map);
+  overlayLayers.set(track, group);
   if (!observations.length) return;
   const {segments, ends} = routeParts(observations);
   const show = index => {
@@ -360,14 +390,12 @@ function renderComparison(observations, track) {
   };
   for (const segment of segments) {
     const coordinates = segment.map(index => [observations[index].lat, observations[index].lon]);
-    // A dark casing keeps the comparison legible over yellow roads and pale
-    // map tiles. Only the visible violet line handles clicks.
     L.polyline(coordinates, {
       color: OVERLAY_OUTLINE, weight: 7, opacity: 0.9, interactive: false
-    }).addTo(compareLayer);
+    }).addTo(group);
     L.polyline(coordinates, {
-      color: OVERLAY_COLOR, weight: 4, opacity: 1
-    }).on('click', event => show(nearestIndex(event, segment, observations))).addTo(compareLayer);
+      color, weight: 4, opacity: 1
+    }).on('click', event => show(nearestIndex(event, segment, observations))).addTo(group);
   }
   const stride = Math.max(1, Math.ceil(observations.length / MAX_NODES));
   for (let index = 0; index < observations.length; index++) {
@@ -375,66 +403,68 @@ function renderComparison(observations, track) {
     const p = observations[index];
     L.circleMarker([p.lat, p.lon], {
       radius: 4, weight: 2, color: OVERLAY_OUTLINE,
-      fillColor: OVERLAY_COLOR, fillOpacity: 1, bubblingMouseEvents: false
+      fillColor: color, fillOpacity: 1, bubblingMouseEvents: false
     }).bindTooltip(pointText(p, index, track, observations.length))
-      .on('click', () => show(index)).addTo(compareLayer);
+      .on('click', () => show(index)).addTo(group);
   }
 }
 
-async function loadComparison() {
-  const generation = ++compareGeneration;
+async function loadOverlays() {
+  const generation = ++overlayGeneration;
   const token = revision;
-  const track = compareTrack;
-  const scope = $('compare-time').value || 'all';
-  compareLayer.clearLayers();
-  $('compare-time-control').hidden = !track;
+  clearOverlayLayers();
   $('compare-status').textContent = '';
-  if (!track || track === selectedTrack || mode !== 'history' || !bounds) return;
-  $('compare-status').textContent = 'Loading overlay…';
+  if (mode !== 'history' || !bounds || !visibleOverlays.size) return;
+  const tracks = [...visibleOverlays].filter(t => t !== selectedTrack);
+  const scope = $('compare-time').value || 'all';
+  $('compare-status').textContent = 'Loading comparison tracks…';
+  const fitPoints = [...points];
+  const notes = [];
   try {
-    const observations = [];
-    let next = null;
-    do {
-      const query = new URLSearchParams({track_id: track, limit: String(PAGE_SIZE)});
-      if (scope === 'interval') {
-        query.set('from', bounds.from);
-        query.set('to', bounds.to);
-      }
-      if (next) query.set('cursor', next);
-      const result = await getJSON('/api/points?' + query);
-      if (generation !== compareGeneration || token !== revision || mode !== 'history') return;
-      observations.push(...result.points);
-      next = result.next_cursor;
-    } while (next && observations.length < MAX_DISPLAY);
-    renderComparison(observations, track);
-    if (observations.length) fitObservations(points.concat(observations));
-    const suffix = next ? ' (partial; narrow using Same interval)' : '';
-    $('compare-status').textContent = observations.length
-      ? `${observations.length} overlay fixes${suffix}`
-      : scope === 'interval'
-        ? 'No overlay fixes in this interval; try Entire run.'
-        : 'This recording run has no observations.';
+    for (const [i, track] of tracks.entries()) {
+      const observations = [];
+      let next = null;
+      do {
+        const query = new URLSearchParams({track_id: track, limit: String(PAGE_SIZE)});
+        if (scope === 'interval') {
+          query.set('from', bounds.from);
+          query.set('to', bounds.to);
+        }
+        if (next) query.set('cursor', next);
+        const result = await getJSON('/api/points?' + query);
+        if (generation !== overlayGeneration || token !== revision || mode !== 'history') return;
+        observations.push(...result.points);
+        next = result.next_cursor;
+      } while (next && observations.length < MAX_DISPLAY);
+      overlayPoints.set(track, observations);
+      renderOverlay(observations, track, OVERLAY_COLORS[i]);
+      fitPoints.push(...observations);
+      notes.push(`${track}: ${observations.length}${next ? '+ (partial)' : ''}`);
+    }
+    if (generation !== overlayGeneration || token !== revision) return;
+    if (fitPoints.length) fitObservations(fitPoints);
+    $('compare-status').textContent = notes.join(' · ')
+      + (scope === 'interval' && tracks.every(t => !overlayPoints.get(t)?.length)
+        ? ' · No comparison fixes in this interval; try Entire run.' : '');
   } catch (error) {
-    if (generation === compareGeneration && token === revision)
-      $('compare-status').textContent = 'Overlay unavailable: ' + error.message;
+    if (generation === overlayGeneration && token === revision)
+      $('compare-status').textContent = 'Comparison unavailable: ' + error.message;
   }
 }
 
 $('track').addEventListener('change', () => {
   selectedTrack = $('track').value;
-  if (compareTrack === selectedTrack) {
-    compareTrack = '';
-    $('compare').value = '';
-  }
+  visibleOverlays.delete(selectedTrack);
+  renderLayerPanel();
   clearView();
   if (mode === 'history') {historyDefaults(); loadHistory();}
   else refreshLive();
 });
-$('compare').addEventListener('change', () => {
-  compareTrack = $('compare').value;
-  loadComparison();
+$('layers-toggle').addEventListener('click', () => {
+  $('layers-panel').hidden = !$('layers-panel').hidden;
+  $('layers-toggle').setAttribute('aria-expanded', String(!$('layers-panel').hidden));
 });
-$('compare-time').addEventListener('change', () => loadComparison());
+$('compare-time').addEventListener('change', () => loadOverlays());
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));
 $('apply').addEventListener('click', () => loadHistory());

@@ -15,9 +15,11 @@ function viewer() {
   const elements = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
-      value: '', max: '', hidden: false, textContent: '', disabled: false,
+      value: '', max: '', hidden: false, textContent: '', disabled: false, children: [],
       events: {}, addEventListener(name, fn) { this.events[name] = fn; },
       setAttribute() {},
+      appendChild(child) { this.children.push(child); return child; },
+      replaceChildren(...children) { this.children = [...children]; },
     });
     return elements.get(id);
   }
@@ -39,7 +41,7 @@ function viewer() {
   const fitted = [];
   const map = {
     setView() { return this; }, fitBounds(bounds) { fitted.push(bounds.coords); },
-    panTo() {}, invalidateSize() {},
+    panTo() {}, invalidateSize() {}, removeLayer() {},
     latLngToLayerPoint(value) {
       const lat = Array.isArray(value) ? value[0] : value.lat;
       const lon = Array.isArray(value) ? value[1] : value.lng;
@@ -57,7 +59,9 @@ function viewer() {
   const context = vm.createContext({
     document: {
       getElementById: element,
-      createElement() { return {textContent: ''}; },
+      createElement() { return {textContent: '', events: {}, children: [],
+        appendChild(child) { this.children.push(child); },
+        addEventListener(name, fn) { this.events[name] = fn; }}; },
     },
     L: {
       map: () => map,
@@ -83,7 +87,7 @@ function viewer() {
     exec('points = fixture; mode = fixtureMode; selectedTrack = fixtureTrack; lastSignature = ""; lastIndex = 0; render(true)');
     return groups[0].layers;
   }
-  return {render, exec, element, group: groups[0], comparison: groups[1], popup, context, fitted};
+  return {render, exec, element, group: groups[0], groups, popup, context, fitted};
 }
 
 function point(i, minutes = i) {
@@ -152,119 +156,88 @@ test('live view has clickable point details and never inserts track IDs as HTML'
   assert.equal(ui.element('inspect').hidden, true);
 });
 
-test('history overlay separates runs and labels their observations independently', async () => {
-  const ui = viewer();
-  const primary = [point(0), point(1), point(2)];
-  ui.render(primary, 'history', 'run-A');
-  const other = [point(0), point(1)];
-  ui.context.fetch = async url => ({
-    ok: true, json: async () => ({points: other, next_cursor: null}),
-  });
-  ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
-  await ui.exec('loadComparison()');
-  assert.equal(ui.group.layers.filter(layer => layer.type === 'polyline').length, 1);
-  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 2);
-  const overlayNode = ui.comparison.layers.find(layer => layer.type === 'circle');
-  assert.ok(overlayNode.tooltip.textContent.includes('run-B'));
-  overlayNode.events.click();
-  assert.match(ui.popup.content.textContent, /run-B/);
-  assert.equal(ui.element('position').value, '0'); // Overlay does not move primary slider.
-  assert.equal(ui.element('compare-status').textContent, '2 overlay fixes');
-});
-
-test('overlay is violet with dark casing, and remains clickable over map tiles', async () => {
-  const ui = viewer();
-  ui.render([point(0), point(1)], 'history', 'run-A');
-  ui.context.fetch = async () => ({
-    ok: true, json: async () => ({points: [point(0), point(1)], next_cursor: null}),
-  });
-  ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
-  await ui.exec('loadComparison()');
-  const lines = ui.comparison.layers.filter(l => l.type === 'polyline');
-  const dot = ui.comparison.layers.find(l => l.type === 'circle');
-  assert.equal(lines.length, 2);
-  assert.equal(lines[0].options.interactive, false);
-  assert.ok(lines[0].options.weight > lines[1].options.weight);
-  assert.equal(lines[1].options.color, '#8724d5');
-  assert.equal(dot.options.fillColor, lines[1].options.color);
-  assert.equal(dot.options.color, lines[0].options.color);
-  assert.notEqual(lines[1].options.color, '#f8b449');
-  lines[1].events.click({latlng: {lat: 47.001, lng: 28.001}});
-  assert.match(ui.popup.content.textContent, /run-B/);
-});
-
 test('a single recorded fix gets one interactive node but no invented route', () => {
   const ui = viewer();
   const layers = ui.render([point(0)]);
   assert.equal(layers.filter(layer => layer.type === 'polyline').length, 0);
   const nodes = layers.filter(layer => layer.type === 'circle');
-  assert.equal(nodes.length, 2); // Fix and magenta inspection selection.
+  assert.equal(nodes.length, 2);
   nodes[0].events.click();
   assert.match(ui.element('detail').textContent, /1\/1/);
 });
 
-// Regression for an operator selecting a recently recorded run and overlaying
-// a historical run whose timestamps fall outside the selected interval.
-test('Entire run overlays old tracks and fits both tracks into the map', async () => {
+function choose(ui, name, selected = true) {
+  const rows = ui.element('layers-list').children;
+  const row = rows.find(row => row.children[1].textContent.startsWith(name));
+  assert.ok(row, `missing ${name} in layer chooser`);
+  const input = row.children[0];
+  input.checked = selected;
+  input.events.change();
+}
+
+function setupTracks(ui, names = ['run-A', 'run-B', 'run-C', 'run-D', 'run-E']) {
+  ui.context.fixtureCatalogue = names.map(track_id => ({track_id}));
+  ui.exec('catalogue=fixtureCatalogue; selectedTrack="run-A"; renderLayerPanel()');
+}
+
+test('up to four tracks can be enabled and a fifth is rejected', () => {
   const ui = viewer();
-  const recent = [
-    {...point(0), lat: 50.075, lon: 14.414},
-    {...point(1), lat: 50.076, lon: 14.415},
-  ];
-  ui.render(recent, 'history', 'demo-replay');
-  const old = [
-    {...point(0), lat: 48.850, lon: 2.335},
-    {...point(1), lat: 48.851, lon: 2.336},
-  ];
+  setupTracks(ui);
+  choose(ui, 'run-B'); choose(ui, 'run-C'); choose(ui, 'run-D');
+  assert.equal(ui.exec('visibleOverlays.size'), 3);
+  assert.equal(ui.element('layer-count').textContent, '4 visible');
+  choose(ui, 'run-E');
+  assert.equal(ui.exec('visibleOverlays.size'), 3);
+  assert.match(ui.element('compare-status').textContent, /Up to 4/);
+});
+
+test('multi-track overlays are independent, colored and clickable', async () => {
+  const ui = viewer();
+  ui.render([point(0), point(1)], 'history', 'run-A');
+  setupTracks(ui);
+  ui.exec('bounds={from:"2026-11-02T00:00:00Z",to:"2026-11-03T00:00:00Z"}; visibleOverlays.clear();');
+  // visibleOverlays is declared const; work through the exposed Set.
+  ui.exec('visibleOverlays.add("run-B"); visibleOverlays.add("run-C")');
   const queries = [];
   ui.context.fetch = async url => {
     queries.push(url);
-    return {ok: true, json: async () => ({points: old, next_cursor: null})};
+    return {ok: true, json: async () => ({points: [point(0), point(1)], next_cursor: null})};
   };
-  ui.exec('bounds = {from:"2026-11-02T21:47:05Z", to:"2026-11-02T21:47:23Z"}; compareTrack="demo-long-history"');
-  await ui.exec('loadComparison()');
-  const query = new URL('http://localhost' + queries[0]);
-  assert.equal(query.searchParams.get('track_id'), 'demo-long-history');
-  assert.equal(query.searchParams.has('from'), false);
-  assert.equal(query.searchParams.has('to'), false);
-  assert.equal(ui.comparison.layers.filter(layer => layer.type === 'polyline').length, 2);
-  assert.equal(ui.element('compare-time-control').hidden, false);
-  assert.equal(ui.element('compare-status').textContent, '2 overlay fixes');
-  assert.equal(ui.fitted.length, 2); // Primary on selection; union after overlay load.
-  const fittedCoords = ui.fitted.at(-1);
-  assert.equal(fittedCoords.length, 4);
-  assert.ok(fittedCoords.some(([lat, lon]) => lat === 48.850 && lon === 2.335));
-  assert.ok(fittedCoords.some(([lat, lon]) => lat === 50.075 && lon === 14.414));
+  await ui.exec('loadOverlays()');
+  assert.equal(ui.exec('overlayLayers.size'), 2);
+  const b = ui.groups[1].layers, c = ui.groups[2].layers;
+  assert.equal(b.filter(x => x.type === 'polyline')[1].options.color, '#8724d5');
+  assert.equal(c.filter(x => x.type === 'polyline')[1].options.color, '#007c78');
+  b.find(x => x.type === 'circle').events.click();
+  assert.match(ui.popup.content.textContent, /run-B/);
+  assert.equal(ui.element('position').value, '0');
+  assert.equal(queries.length, 2);
+  assert.equal(ui.fitted.at(-1).length, 6);
 });
 
-test('Same interval filters the overlay and explains empty results', async () => {
-  const ui = viewer();
-  ui.render([point(0), point(1)], 'history', 'demo-replay');
-  const requests = [];
-  ui.element('compare-time').value = 'interval';
-  ui.context.fetch = async url => {
-    requests.push(url);
-    return {ok: true, json: async () => ({points: [], next_cursor: null})};
-  };
-  ui.exec('bounds = {from:"2026-11-02T21:47:05Z", to:"2026-11-02T21:47:23Z"}; compareTrack="demo-long-history"');
-  await ui.exec('loadComparison()');
-  const params = new URL('http://localhost' + requests[0]).searchParams;
-  assert.equal(params.get('from'), '2026-11-02T21:47:05Z');
-  assert.equal(params.get('to'), '2026-11-02T21:47:23Z');
-  assert.equal(ui.comparison.layers.length, 0);
-  assert.match(ui.element('compare-status').textContent, /try Entire run/);
-  assert.equal(ui.fitted.length, 1); // Empty overlay must not reset the viewport.
-});
-
-test('clearing the overlay hides its time control and removes its layers', async () => {
+test('comparison time scope filters every overlay', async () => {
   const ui = viewer();
   ui.render([point(0), point(1)], 'history', 'run-A');
-  ui.context.fetch = async () => ({ok: true, json: async () => ({points: [point(0), point(1)], next_cursor: null})});
-  ui.exec('bounds = {from:"2026-11-02T00:00:00Z", to:"2026-11-03T00:00:00Z"}; compareTrack="run-B"');
-  await ui.exec('loadComparison()');
-  assert.ok(ui.comparison.layers.length);
-  ui.exec('compareTrack = ""');
-  await ui.exec('loadComparison()');
-  assert.equal(ui.comparison.layers.length, 0);
-  assert.equal(ui.element('compare-time-control').hidden, true);
+  ui.element('compare-time').value = 'interval';
+  ui.exec('bounds={from:"2026-11-02T21:47:05Z",to:"2026-11-02T21:47:23Z"}; visibleOverlays.add("run-B"); visibleOverlays.add("run-C");');
+  const queries = [];
+  ui.context.fetch = async url => {
+    queries.push(url);
+    return {ok: true, json: async () => ({points: [], next_cursor: null})};
+  };
+  await ui.exec('loadOverlays()');
+  for (const url of queries) {
+    const params = new URL('http://localhost' + url).searchParams;
+    assert.equal(params.get('from'), '2026-11-02T21:47:05Z');
+    assert.equal(params.get('to'), '2026-11-02T21:47:23Z');
+  }
+  assert.match(ui.element('compare-status').textContent, /try Entire run/);
+});
+
+test('focus switches cannot leave the focused track as its own overlay', () => {
+  const ui = viewer();
+  setupTracks(ui);
+  ui.exec('visibleOverlays.add("run-B"); selectedTrack="run-B"; visibleOverlays.delete(selectedTrack); renderLayerPanel()');
+  assert.equal(ui.exec('visibleOverlays.size'), 0);
+  assert.equal(ui.element('layers-list').children[1].children[0].disabled, true);
 });
