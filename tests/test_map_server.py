@@ -6,6 +6,7 @@ import tempfile
 import http.client
 import json
 import threading
+from datetime import datetime
 import unittest
 
 import map_server
@@ -115,6 +116,38 @@ class MapServerTest(unittest.TestCase):
                 stream.write("bad-file-with-no-colon\n")
             with self.assertRaisesRegex(ValueError, "user:password"):
                 map_server.load_authorization(filename)
+
+    def test_position_response_and_recent_points_contract(self):
+        # The browser and existing HTTP producers depend on these exact keys.
+        status, _, body = self.position()
+        self.assertEqual(status, 201)
+        point = json.loads(body)
+        self.assertEqual(set(point), {"lat", "lon", "time"})
+        self.assertEqual((point["lat"], point["lon"]), (47.0, 28.0))
+        self.assertIsNotNone(datetime.fromisoformat(point["time"]).tzinfo)
+        status, _, body = self.request("GET", "/api/points")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"points": [point]})
+
+    def test_invalid_coordinates_never_enter_history(self):
+        for payload in (
+            b'{}', b'{"lat":91,"lon":28}', b'{"lat":47,"lon":181}',
+            b'{"lat":true,"lon":28}', b'{"lat":"47","lon":28}',
+            b'{"lat":null,"lon":28}', b'[]', b'invalid-json',
+        ):
+            with self.subTest(payload=payload):
+                status, _, _ = self.request("POST", "/api/position", payload,
+                                           {"Content-Type": "application/json"})
+                self.assertEqual(status, 400)
+        status, _, body = self.request("GET", "/api/points")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"points": []})
+
+    def test_ingestion_method_and_content_type_are_checked(self):
+        self.assertEqual(self.request("GET", "/api/position")[0], 404)
+        self.assertEqual(self.request("POST", "/api/position", b'{}',
+                                      {"Content-Type": "text/plain"})[0], 415)
+        self.assertEqual(self.request("GET", "/api/points")[0], 200)
 
     def test_invalid_port_is_rejected(self):
         for port in ("0", "65536", "hello"):
