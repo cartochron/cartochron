@@ -147,7 +147,8 @@ class GPSStreamerTest < Minitest::Test
     _sent, logs, console = streamer_fixture([denied, denied, success])
     assert_raises(Interrupt) { @module.run }
     assert_empty console
-    assert_equal 1, logs.count { |kind, msg| kind == :warn && msg.include?('HTTP 401') }
+    assert_equal 1, logs.count { |kind, msg| kind == :warn && msg.include?('HTTP 401 (check MAP_USER/MAP_PASSWORD)') }
+    refute_match(/private-password/, logs.inspect)
     assert logs.any? { |kind, msg| kind == :info && msg.include?('Ingestion recovered') }
     assert logs.any? { |kind, msg| kind == :info && msg.include?('rejected=2') && msg.include?('accepted=1') }
   end

@@ -91,7 +91,7 @@ class MetasploitModule < Msf::Post
               dlog("[Cartochron] Observation accepted run=#{track_id}", 'core', 2)
             else
               outcome = :rejected
-              detail = "HTTP #{response.code}"
+              detail = response.code.to_i == 401 ? "HTTP 401 (check MAP_USER/MAP_PASSWORD)" : "HTTP #{response.code}"
             end
           end
         end
