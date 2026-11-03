@@ -39,6 +39,22 @@ make check            # Run all Python, Ruby, and JavaScript tests (no skipped s
 make check-viewer     # Run the browser-logic tests alone
 ```
 
+## Docker Compose (optional)
+
+A one-container Compose deployment packages the Python receiver and verified
+Leaflet assets, with persistent SQLite, private HTTP credentials and a
+loopback-only host port. Set up a private `data/` directory and a host-user
+`.env` file as explained in the [operations guide](docs/operations.md), then:
+
+```sh
+docker compose up -d --build
+```
+
+For backup/restore, VPS HTTPS, source enrollment and the opt-in real-container
+rehearsal (`make check-deploy`), see the same operations guide. Compose does
+**not** install or run Metasploit, and the regular `make check` does not
+require Docker.
+
 ## Local use (default)
 
 Start the map server:

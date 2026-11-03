@@ -13,6 +13,8 @@ services:
         bind:
           create_host_path: false
     read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
