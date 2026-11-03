@@ -14,7 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from observation_store import MAX_RECENT_POINTS, ObservationStore, valid_track_id
+from observation_store import (MAX_RECENT_POINTS, ObservationStore, SourceConflict,
+                               UnknownSource, valid_source_id, valid_track_id)
 
 MAX_BODY = 4096
 _ROOT = Path(__file__).resolve().parent
@@ -209,6 +210,12 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error:
                 return self._json(503, {"error": "observation storage unavailable"})
             return self._json(200, data)
+        if path == "/api/sources" and not urlsplit(self.path).query:
+            try:
+                data = self.server.store.sources()
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/tracks" and not urlsplit(self.path).query:
             try:
                 data = self.server.store.tracks()
@@ -235,6 +242,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("JSON object expected")
             lat, lon = obj["lat"], obj["lon"]
             track_id = obj.get("track_id", "legacy")
+            source_id = obj.get("source_id")
+            if source_id is not None and not valid_source_id(source_id):
+                return self._json(400, {"error": "invalid source_id"})
             if not valid_track_id(track_id):
                 return self._json(400, {"error": "invalid track_id"})
             if type(lat) not in (int, float) or type(lon) not in (int, float):
@@ -244,14 +254,18 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             return self._json(400, {"error": "expected finite lat (-90..90) and lon (-180..180)"})
         try:
-            point = self.server.store.record(lat, lon, track_id)
+            point = self.server.store.record(lat, lon, track_id, source_id)
+        except UnknownSource:
+            return self._json(422, {"error": "source_id is not enrolled"})
+        except SourceConflict:
+            return self._json(409, {"error": "recording run/source conflict"})
         except sqlite3.Error:
             return self._json(503, {"error": "observation storage unavailable"})
         return self._json(201, point)
 
     def log_message(self, fmt, *args):
         # Do not log coordinates or request bodies.
-        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/points/recent", "/api/tracks"):
+        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/points/recent", "/api/tracks", "/api/sources"):
             return
         super().log_message(fmt, *args)
 
