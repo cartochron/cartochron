@@ -80,45 +80,59 @@ class ObservationStore:
 
     def _initialize(self):
         version = self._db.execute("PRAGMA user_version").fetchone()[0]
-        if version == SCHEMA_VERSION:
-            self._verify_schema()
-            return
-        if version not in (0, 1, 2):
-            raise ValueError(f"unsupported database schema version: {version}")
         if version == 0:
             existing = self._db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
             if existing:
                 raise ValueError("database has no Cartochron schema version; refusing to modify it")
-            with self._db:
-                self._db.execute("BEGIN IMMEDIATE")
-                self._db.execute("""
-                    CREATE TABLE observations (
-                        id INTEGER PRIMARY KEY,
-                        track_id TEXT NOT NULL,
-                        received_ms INTEGER NOT NULL,
-                        lat REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
-                        lon REAL NOT NULL CHECK (lon BETWEEN -180 AND 180)
-                    )
-                """)
-                self._db.execute("""
-                    CREATE INDEX observations_track_time
-                    ON observations(track_id, received_ms, id)
-                """)
-                self._db.execute("PRAGMA user_version = 1")
-        elif version == 1:
-            self._db.execute(
-                "SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0"
-            )
-        else:  # Existing v2 databases must have their source/run tables intact.
-            self._db.execute("SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0")
-            self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
-            self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
+            self._create_schema()
+        elif version in (1, 2):
+            self._migrate(version)
+        elif version != SCHEMA_VERSION:
+            raise ValueError(f"unsupported database schema version: {version}")
+        self._verify_schema()
 
-        if version < 2:
-            # One transaction upgrades both new and existing version-1 databases.
-            # Old runs remain unassigned; no historical source is guessed.
+    def _create_schema(self):
+        """New databases start at the current schema, not at legacy revisions."""
+        with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
+            self._db.execute("""
+                CREATE TABLE sources (
+                    source_id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL
+                )
+            """)
+            self._db.execute("""
+                CREATE TABLE runs (
+                    track_id TEXT PRIMARY KEY,
+                    source_id TEXT REFERENCES sources(source_id)
+                )
+            """)
+            self._db.execute("""
+                CREATE TABLE observations (
+                    id INTEGER PRIMARY KEY,
+                    track_id TEXT NOT NULL,
+                    received_ms INTEGER NOT NULL,
+                    lat REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
+                    lon REAL NOT NULL CHECK (lon BETWEEN -180 AND 180),
+                    measured_ms INTEGER,
+                    provider TEXT,
+                    accuracy_m REAL
+                )
+            """)
+            self._db.execute("""
+                CREATE INDEX observations_track_time
+                ON observations(track_id, received_ms, id)
+            """)
+            self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def _migrate(self, version):
+        """Upgrade existing histories; never guess a source or fix metadata."""
+        self._db.execute("SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0")
+        if version == 1:
+            # One transaction creates the source/run tables and retains old
+            # histories as unassigned runs. No identity is inferred.
             with self._db:
                 self._db.execute("BEGIN IMMEDIATE")
                 self._db.execute("""
@@ -138,15 +152,18 @@ class ObservationStore:
                     SELECT DISTINCT track_id, NULL FROM observations
                 """)
                 self._db.execute("PRAGMA user_version = 2")
+        else:
+            # Refuse damaged v2 layouts before attempting ALTER TABLE.
+            self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
+            self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
 
-        # Optional producer-reported fix metadata. Legacy values stay NULL.
+        # Upgrade v2 -> v3 atomically. Old measurements remain unknown.
         with self._db:
             self._db.execute("BEGIN IMMEDIATE")
             self._db.execute("ALTER TABLE observations ADD COLUMN measured_ms INTEGER")
             self._db.execute("ALTER TABLE observations ADD COLUMN provider TEXT")
             self._db.execute("ALTER TABLE observations ADD COLUMN accuracy_m REAL")
-            self._db.execute("PRAGMA user_version = 3")
-        self._verify_schema()
+            self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.

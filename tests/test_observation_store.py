@@ -14,6 +14,36 @@ from observation_store import MAX_RECENT_POINTS, ObservationStore, SCHEMA_VERSIO
 
 
 class ObservationStoreTest(unittest.TestCase):
+    def test_new_database_starts_directly_at_current_schema(self):
+        # A pre-release version need not reenact v1/v2 migrations every time
+        # someone creates an empty database.
+        with tempfile.TemporaryDirectory() as directory:
+            filename = Path(directory) / "new.sqlite3"
+            statements = []
+            real_connect = sqlite3.connect
+
+            def traced_connect(*args, **kwargs):
+                db = real_connect(*args, **kwargs)
+                db.set_trace_callback(statements.append)
+                return db
+
+            with patch("observation_store.sqlite3.connect", side_effect=traced_connect):
+                store = ObservationStore(filename)
+                try:
+                    sid = store.enroll("Lab")
+                    store.record(47, 28, "run", sid, measured_ms=1700000000000,
+                                 provider="gps", accuracy_m=12.0)
+                finally:
+                    store.close()
+            self.assertFalse(any("ALTER TABLE" in sql.upper() for sql in statements))
+            self.assertFalse(any("USER_VERSION = 1" in sql.upper() or
+                                 "USER_VERSION = 2" in sql.upper() for sql in statements))
+            with closing(real_connect(filename)) as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT provider, accuracy_m FROM observations").fetchone(),
+                                 ("gps", 12.0))
+
     def test_track_ids_are_validated_and_isolated(self):
         store = ObservationStore()
         try:

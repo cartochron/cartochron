@@ -115,6 +115,38 @@ class SourceStoreTest(TestCase):
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],
                                  SCHEMA_VERSION)
 
+    def test_failed_v2_upgrade_is_atomic_and_preserves_history(self):
+        # An inconsistent legacy schema must fail, not leave a half-upgraded v3.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "partial-v2.sqlite3"
+            with closing(sqlite3.connect(path)) as db, db:
+                db.executescript("""
+                    CREATE TABLE observations (
+                        id INTEGER PRIMARY KEY, track_id TEXT NOT NULL,
+                        received_ms INTEGER NOT NULL, lat REAL NOT NULL,
+                        lon REAL NOT NULL, measured_ms INTEGER
+                    );
+                    CREATE TABLE sources (source_id TEXT PRIMARY KEY, label TEXT NOT NULL);
+                    CREATE TABLE runs (
+                        track_id TEXT PRIMARY KEY,
+                        source_id TEXT REFERENCES sources(source_id)
+                    );
+                    INSERT INTO runs VALUES ('existing', NULL);
+                    INSERT INTO observations(track_id, received_ms, lat, lon)
+                    VALUES ('existing', 1700000000000, 47, 28);
+                    PRAGMA user_version = 2;
+                """)
+            path.chmod(0o600)
+            with self.assertRaises(sqlite3.OperationalError):
+                ObservationStore(path)
+            with closing(sqlite3.connect(path)) as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
+                columns = {r[1] for r in db.execute("PRAGMA table_info(observations)")}
+                self.assertNotIn("provider", columns)
+                self.assertNotIn("accuracy_m", columns)
+                self.assertEqual(db.execute("SELECT track_id, lat, lon FROM observations").fetchone(),
+                                 ("existing", 47.0, 28.0))
+
     def test_concurrent_writes_to_one_source_are_consistent(self):
         store = ObservationStore()
         try:
