@@ -80,13 +80,24 @@ class GPSStreamerTest < Minitest::Test
     assert console.any? { |line| line.include?('SOURCE_ID') }
   end
 
+  def test_wlan_scan_is_not_a_coordinate_fallback
+    sent, logs, _console = streamer_fixture([], positions: [nil])
+    @module.client.android.define_singleton_method(:wlan_geolocate) do
+      raise 'WLAN scans return access points, not coordinates'
+    end
+    assert_raises(Interrupt) { @module.run }
+    assert_empty sent
+    assert logs.any? { |kind, msg| kind == :warn && msg.include?('No usable location fix') }
+    refute logs.any? { |kind, _msg| kind == :error }
+  end
+
   def streamer_fixture(responses, positions: nil, interval: 5, settings: {})
     positions ||= Array.new(responses.size) { [{ 'lat' => 47.7548547, 'long' => 27.888729 }] }
     gps = Object.new
     calls = 0
     phone = Struct.new(:android).new(gps)
     datastore = { 'INTERVAL' => interval, 'ENDPOINT' => 'http://127.0.0.1:8765/api/position',
-                  'API_KEY' => '', 'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '', 'SOURCE_ID' => '' }.merge(settings)
+                  'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '', 'SOURCE_ID' => '' }.merge(settings)
     sent = []
     logs = []
     console = []

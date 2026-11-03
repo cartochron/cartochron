@@ -13,7 +13,8 @@ unchanged.
 ## How it works
 
 1. An authorized Android Meterpreter session provides coordinates to the
-   `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
+   `gps_streamer` post module, using Meterpreter `geolocate` (the Android
+   network provider's last-known location).
 2. The module posts `{"lat": ..., "lon": ..., "track_id": ...}` (and an optional
    `source_id`) to the server. A new random `track_id` is generated once per
    Metasploit job; a configured `source_id` can persist across jobs.
@@ -370,9 +371,11 @@ persistent test database. Before walking, verify:
 
 Observe actual receipt timestamps, poll intervals, missing fixes, connection
 failures, and GPS acquisition failures. The server records **receipt time**,
-not independently verified satellite-fix time. Long observation gaps are not
-proof of continuous movement. Never place real location data or passwords in
-public bug reports or test fixtures.
+not independently verified satellite-fix time. Meterpreter's Android `geolocate`
+uses `getLastKnownLocation(NETWORK_PROVIDER)`: a successful poll can return the
+same cached location repeatedly, with unknown acquisition time and accuracy.
+Long observation gaps are not proof of continuous movement. Never place real
+location data or passwords in public bug reports or test fixtures.
 
 ## VPS / network use
 
@@ -448,8 +451,9 @@ msf6 post(android/gather/gps_streamer) > run -j
 ```
 
 `MAP_USER` and `MAP_PASSWORD` are optional, but must be supplied together.
-They are HTTP Basic credentials for the map server, **not** the `API_KEY`
-used by `wlan_geolocate` as a fallback. Do not put the password into
+They are HTTP Basic credentials for the map server. The obsolete WLAN fallback
+and its `API_KEY` option have been removed: Meterpreter's `wlan_geolocate`
+returns access-point information, not coordinates. Do not put the password into
 `ENDPOINT`. Metasploit's datastore, command history, and console recordings
 may expose values entered using `set`; protect them accordingly.
 

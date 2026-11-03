@@ -5,7 +5,9 @@
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
 compatibility. Every accepted fix receives a server-generated receipt timestamp.
-This is *not* necessarily when the GPS measurement was acquired.
+This is *not* necessarily when the GPS measurement was acquired. Meterpreter's Android
+`geolocate` uses `getLastKnownLocation(NETWORK_PROVIDER)`, so repeated responses
+may be cached and cannot be treated as independent measurements.
 
 A source is enrolled locally and has an opaque persistent ID plus a descriptive
 label. A run has one stable association with exactly one source or with no
