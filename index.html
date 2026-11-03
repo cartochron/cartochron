@@ -47,7 +47,7 @@
         else marker.setLatLng([current.lat,current.lon]);
         if(first) { map.setView([current.lat,current.lon], 15); first = false; }
       } catch(err) {
-        document.querySelector('#status').textContent = 'Local server unavailable: '+err.message;
+        document.querySelector('#status').textContent = 'Map server unavailable: '+err.message;
       }
     }
     refresh();
