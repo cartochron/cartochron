@@ -11,7 +11,7 @@ class MetasploitModule < Msf::Post
       update_info(
         info,
         'Name'         => 'Android GPS Streamer to Map Server',
-        'Description'  => 'Pulls coordinates via geolocate (with wlan_geolocate fallback) and streams via HTTP POST.',
+        'Description'  => 'Continuously streams GPS observations via HTTP POST. Use run -j to keep msfconsole interactive.',
         'License'      => 'GPL-3.0-or-later',
         'Author'       => ['sighook'],
         'Platform'     => ['android'],
@@ -54,7 +54,8 @@ class MetasploitModule < Msf::Post
 
     print_status("Starting GPS stream to #{endpoint} (Interval: #{interval}s)...")
     print_status("Recording run: #{track_id}")
-    print_status("Use 'jobs -k <JobID>' to stop.")
+    print_status("Continuous streamer: use 'run -j' to keep msfconsole available.")
+    print_status("For background runs: 'jobs -l' lists jobs; 'jobs -k <JobID>' stops this job, not the session.")
 
     loop do
       begin

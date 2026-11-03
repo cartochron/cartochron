@@ -56,9 +56,29 @@ msf6 post(android/gather/gps_streamer) > set INTERVAL 3
 msf6 post(android/gather/gps_streamer) > run -j
 ```
 
+The stream runs continuously. **Use `run -j`, not plain `run`:** Metasploit
+runs the post module as a background job and returns the interactive console.
+Plain `run` executes the polling loop in the foreground until interrupted.
+
+A job is the GPS recording task; a session is the connection to the device.
+They have different IDs and lifecycles. For example:
+
+```text
+msf6 > jobs -l              # Find the GPS streamer job ID
+msf6 > sessions -l          # Find the Meterpreter session ID
+msf6 > sessions -i <id>     # Enter the session while GPS streaming continues
+meterpreter > background    # Return to msfconsole, keeping the session open
+msf6 > jobs -k <JobID>      # Stop only the GPS streamer job
+```
+
+Do not confuse `<JobID>` with the Meterpreter session ID. Stopping the
+streamer job does not close the session. Both the recording job and interactive
+commands use the same session, so avoid overlapping intensive operations when
+investigating inconsistent location polls. You do not need another terminal,
+thread, daemon, or custom job manager.
+
 The default `ENDPOINT` is `http://127.0.0.1:8765/api/position`.
-Stop the background job using `jobs -k <JobID>`. The module prints the
-recording-run ID when starting. `TRACK_ID` is optional; leave it empty to
+The module prints the recording-run ID when starting. `TRACK_ID` is optional; leave it empty to
 create a fresh random ID each run. Set it explicitly (1–64 ASCII letters,
 digits, `.`, `_`, or `-`, starting with a letter or digit) only when you
 intentionally want multiple jobs to append to the same recording run.
@@ -102,9 +122,12 @@ pruning in persistent mode; the operator owns storage and deletion policy.
 
 ## Map navigation
 
-The **Help / Manual** link in the header opens an in-app field manual at
-`/help`, with annotated screenshots of synthetic recordings. The help page
-and its images have the same authentication requirements as the map.
+The **Help / Manual** link in the header opens a user-oriented map-reading
+guide at `/help`. It explains Live/History, track comparisons, time and place
+inspection, gaps, partial results, and what the data does not establish, with
+annotated synthetic screenshots. Installation, Metasploit operation, and testing
+belong in this README, not the in-app Help page. Help and its images use the
+same authentication requirements as the map.
 
 
 The track selector lists the 100 most recently updated runs (the catalogue

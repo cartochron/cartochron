@@ -60,9 +60,10 @@ class GPSStreamerTest < Minitest::Test
     settings = { 'INTERVAL' => 1, 'ENDPOINT' => 'http://127.0.0.1:8765/api/position',
                  'API_KEY' => '', 'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '' }
     sent = []
+    messages = []
     @module.define_singleton_method(:datastore) { settings }
     @module.define_singleton_method(:client) { client }
-    @module.define_singleton_method(:print_status) { |_message| }
+    @module.define_singleton_method(:print_status) { |message| messages << message }
     @module.define_singleton_method(:print_good) { |_message| }
     @module.define_singleton_method(:print_error) { |message| raise message }
     @module.define_singleton_method(:submit_position) do |_uri, _lat, _lon, _user, _password, track|
@@ -72,6 +73,8 @@ class GPSStreamerTest < Minitest::Test
     @module.define_singleton_method(:sleep) { |_seconds| raise Interrupt if sent.length >= 2 }
     assert_raises(Interrupt) { @module.run }
     assert_equal 2, sent.length
+    assert messages.any? { |message| message.include?("run -j") }, 'background-job usage should be visible'
+    assert messages.any? { |message| message.include?("jobs -k") }, 'stop instructions should be visible'
     assert_equal sent.first, sent.last
     assert_match(/\A[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\z/, sent.first)
   end
