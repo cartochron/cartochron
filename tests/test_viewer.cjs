@@ -41,6 +41,7 @@ function viewer() {
   const fitted = [];
   const map = {
     setView() { return this; }, fitBounds(bounds) { fitted.push(bounds.coords); },
+    on(name, fn) {this.events = this.events || {}; this.events[name] = fn; return this;},
     panTo() {}, invalidateSize() {}, removeLayer() {},
     latLngToLayerPoint(value) {
       const lat = Array.isArray(value) ? value[0] : value.lat;
@@ -69,6 +70,7 @@ function viewer() {
       layerGroup: newGroup,
       polyline: (coords, options) => shape('polyline', coords, options),
       circleMarker: (coords, options) => shape('circle', coords, options),
+      circle: (coords, options) => shape('area', coords, options),
       latLngBounds: coords => ({coords, getCenter: () => coords[0]}),
       popup: () => popup,
     },
@@ -87,7 +89,7 @@ function viewer() {
     exec('points = fixture; mode = fixtureMode; selectedTrack = fixtureTrack; lastSignature = ""; lastIndex = 0; render(true)');
     return groups[0].layers;
   }
-  return {render, exec, element, group: groups[0], groups, popup, context, fitted};
+  return {render, exec, element, group: groups[0], groups, map, popup, context, fitted};
 }
 
 function point(i, minutes = i) {
@@ -257,4 +259,19 @@ test('shared time cursor only draws fresh, observed fixes for each selected run'
   assert.equal(ui.exec('timeLayer.layers.length'), 1);
   assert.match(ui.element('time-results').children[1].textContent, /no recent fix/);
   assert.match(ui.element('time-value').textContent, /fixes older than 5 minutes/);
+});
+
+test('place inspector lists only loaded fixes within radius in chronological order', () => {
+  const ui = viewer();
+  ui.render([point(0, 0), point(1, 1), point(2, 2)], 'history', 'run-A');
+  ui.context.fixtureExtra = [{...point(0, 3), lat: 47.0001, lon: 28.0001}];
+  ui.exec('overlayPoints.set("run-B", fixtureExtra)');
+  ui.element('place-panel').hidden = false;
+  ui.element('place-radius').value = '100';
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  assert.equal(ui.element('place-results').children.length, 2);
+  assert.match(ui.element('place-results').children[0].textContent, /run-A/);
+  assert.match(ui.element('place-results').children[1].textContent, /run-B/);
+  assert.match(ui.element('place-status').textContent, /not a complete database search/);
+  assert.equal(ui.exec('placeLayer.layers.length'), 1);
 });

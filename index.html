@@ -17,6 +17,10 @@
     #status, #detail, #page-status, #compare-status {color:#bdd0db; font-variant-numeric:tabular-nums}
     .controls, #history-controls, #inspect {display:flex; align-items:center; flex-wrap:wrap; gap:10px}
     #history-controls {margin-top:10px}
+    #place-panel {margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
+    #place-panel .controls {margin-bottom:8px}
+    #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
+    #place-status {font-size:12px;color:#bdd0db}
     #layers-panel {display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #layers-list {display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:100%}
     .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
@@ -70,6 +74,7 @@
       <button id="apply" type="button">Show interval</button>
       <button id="more" type="button" hidden>Load more</button>
       <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Tracks <span id="layer-count">1 visible</span></button>
+      <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">Inspect place</button>
       <span id="compare-status" aria-live="polite"></span>
       <span id="page-status" aria-live="polite"></span>
     </div>
@@ -80,6 +85,17 @@
         <option value="interval">Same interval</option>
       </select></label>
       <small>Focused track stays visible. Select up to three more runs.</small>
+    </div>
+    <div id="place-panel" hidden>
+      <div class="controls"><strong>Place inspector</strong>
+        <label>Radius <select id="place-radius" aria-label="Place search radius">
+          <option value="50">50 m</option><option value="100" selected>100 m</option>
+          <option value="250">250 m</option>
+        </select></label>
+        <span id="place-status">Click a location on the map to inspect loaded observations.</span>
+      </div>
+      <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
+      <small>Recorded proximity does not establish presence between fixes or intent.</small>
     </div>
   </header>
   <main id="map" aria-label="GPS observation map"></main>

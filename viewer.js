@@ -21,6 +21,8 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const layer = L.layerGroup().addTo(map);
 const overlayLayers = new Map();
 const timeLayer = L.layerGroup().addTo(map);
+const placeLayer = L.layerGroup().addTo(map);
+let placeSelection = null;
 
 let catalogue = [];
 let selectedTrack = '';
@@ -67,6 +69,10 @@ function clearView() {
   overlayLayers.clear();
   overlayPoints.clear();
   timeLayer.clearLayers();
+  placeLayer.clearLayers();
+  placeSelection = null;
+  $('place-results').replaceChildren();
+  $('place-status').textContent = 'Click a location on the map to inspect loaded observations.';
   $('time-panel').hidden = true;
   $('compare-status').textContent = '';
   $('inspect').hidden = true;
@@ -209,6 +215,7 @@ function render(fit = false) {
     showInspection();
     status(`${points.length} observation${points.length === 1 ? '' : 's'} · ${routeSegments.length} route segment${routeSegments.length === 1 ? '' : 's'}`);
     updateTimeCursor();
+    updatePlaceInspector();
   } else {
     $('inspect').hidden = true;
     timeLayer.clearLayers();
@@ -251,7 +258,12 @@ function setMode(next) {
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
   $('history').setAttribute('aria-pressed', String(mode === 'history'));
   $('history-controls').hidden = mode !== 'history';
-  if (mode !== 'history') $('layers-panel').hidden = true;
+  if (mode !== 'history') {
+    $('layers-panel').hidden = true;
+    $('place-panel').hidden = true;
+    $('layers-toggle').setAttribute('aria-expanded', 'false');
+    $('place-toggle').setAttribute('aria-expanded', 'false');
+  }
   clearView();
   if (mode === 'history') {
     historyDefaults();
@@ -391,6 +403,47 @@ function updateTimeCursor() {
   }
 }
 
+function distanceMeters(a, b) {
+  const radians = Math.PI / 180;
+  const aLat = a.lat * radians, bLat = b.lat * radians;
+  const deltaLat = (b.lat - a.lat) * radians;
+  const deltaLon = (b.lon - a.lon) * radians;
+  const h = Math.sin(deltaLat / 2) ** 2 + Math.cos(aLat) * Math.cos(bLat)
+    * Math.sin(deltaLon / 2) ** 2;
+  return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function updatePlaceInspector() {
+  placeLayer.clearLayers();
+  if (!placeSelection || mode !== 'history') return;
+  const radius = Number($('place-radius').value);
+  L.circle([placeSelection.lat, placeSelection.lon], {
+    radius, color: '#f2d6ff', fillColor: '#8724d5', fillOpacity: 0.12, weight: 2
+  }).addTo(placeLayer);
+  const found = [];
+  const runs = [{track: selectedTrack, fixes: points},
+    ...[...overlayPoints].map(([track, fixes]) => ({track, fixes}))];
+  for (const run of runs) for (const p of run.fixes) {
+    const meters = distanceMeters(placeSelection, p);
+    if (meters <= radius) found.push({track: run.track, point: p, meters});
+  }
+  found.sort((a, b) => Date.parse(a.point.time) - Date.parse(b.point.time));
+  const results = $('place-results');
+  results.replaceChildren();
+  $('place-status').textContent = `${found.length} loaded fix${found.length === 1 ? '' : 'es'} within ${radius} m `
+    + '(not a complete database search; gaps and unloaded pages are excluded)';
+  for (const entry of found.slice(0, 40)) {
+    const item = document.createElement('li');
+    item.textContent = `${localTime(entry.point.time)} · ${entry.track} · ${Math.round(entry.meters)} m`;
+    results.appendChild(item);
+  }
+  if (found.length > 40) {
+    const item = document.createElement('li');
+    item.textContent = `First 40 of ${found.length} fixes shown; narrow the selection.`;
+    results.appendChild(item);
+  }
+}
+
 function renderLayerPanel() {
   const panel = $('layers-list');
   panel.replaceChildren();
@@ -497,6 +550,7 @@ async function loadOverlays() {
       + (scope === 'interval' && tracks.every(t => !overlayPoints.get(t)?.length)
         ? ' · No comparison fixes in this interval; try Entire run.' : '');
     updateTimeCursor();
+    updatePlaceInspector();
   } catch (error) {
     if (generation === overlayGeneration && token === revision)
       $('compare-status').textContent = 'Comparison unavailable: ' + error.message;
@@ -522,6 +576,17 @@ $('apply').addEventListener('click', () => loadHistory());
 $('more').addEventListener('click', () => {if (cursor && points.length < MAX_DISPLAY) loadHistory(true);});
 $('position').addEventListener('input', showInspection);
 $('time-cursor').addEventListener('input', updateTimeCursor);
+$('place-toggle').addEventListener('click', () => {
+  $('place-panel').hidden = !$('place-panel').hidden;
+  $('place-toggle').setAttribute('aria-expanded', String(!$('place-panel').hidden));
+  if ($('place-panel').hidden) {placeSelection = null; placeLayer.clearLayers();}
+});
+$('place-radius').addEventListener('change', updatePlaceInspector);
+map.on('click', event => {
+  if (mode !== 'history' || $('place-panel').hidden) return;
+  placeSelection = {lat: event.latlng.lat, lon: event.latlng.lng};
+  updatePlaceInspector();
+});
 refreshTracks();
 setInterval(() => {
   ticks++;
