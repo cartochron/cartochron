@@ -8,10 +8,29 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from observation_store import MAX_RECENT_POINTS, ObservationStore, SCHEMA_VERSION
+from observation_store import MAX_RECENT_POINTS, ObservationStore, SCHEMA_VERSION, valid_track_id
 
 
 class ObservationStoreTest(unittest.TestCase):
+    def test_track_ids_are_validated_and_isolated(self):
+        store = ObservationStore()
+        try:
+            store.record(47, 28, "run-A")
+            store.record(48, 29, "run-B")
+            store.record(49, 30, "run-A")
+            self.assertEqual([p["lat"] for p in store.recent()], [47, 49])
+            catalogue = store.tracks()
+            self.assertEqual([t["track_id"] for t in catalogue["tracks"]], ["run-A", "run-B"])
+            self.assertEqual([t["count"] for t in catalogue["tracks"]], [2, 1])
+            self.assertFalse(catalogue["truncated"])
+            for invalid in ("", " space", "../oops", "x" * 65, "é", None, 42):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    store.record(47, 28, invalid)
+            self.assertTrue(valid_track_id("abc.1-X_y"))
+            self.assertEqual(len(store.tracks()["tracks"]), 2)
+        finally:
+            store.close()
+
     def test_default_database_is_in_memory_and_bounded(self):
         store = ObservationStore()
         try:

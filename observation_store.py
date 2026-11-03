@@ -1,6 +1,7 @@
 """SQLite storage for received GPS observations, independent of HTTP and Metasploit."""
 
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -10,6 +11,14 @@ from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
 SCHEMA_VERSION = 1
+MAX_TRACKS = 100
+TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+
+
+def valid_track_id(value):
+    """Track IDs are small, portable identifiers, not device identities or secrets."""
+    return isinstance(value, str) and TRACK_ID_PATTERN.fullmatch(value) is not None
+
 
 
 class ObservationStore:
@@ -89,13 +98,15 @@ class ObservationStore:
         timestamp = datetime.fromtimestamp(received_ms / 1000, timezone.utc)
         return {"lat": lat, "lon": lon, "time": timestamp.isoformat(timespec="seconds")}
 
-    def record(self, lat, lon):
+    def record(self, lat, lon, track_id="legacy"):
         """Commit first; only then return an acknowledgement to the HTTP layer."""
-        received_ms = time.time_ns() // 1_000_000
+        if not valid_track_id(track_id):
+            raise ValueError("invalid track_id")
         with self._lock, self._db:
+            received_ms = time.time_ns() // 1_000_000
             self._db.execute(
                 "INSERT INTO observations(track_id, received_ms, lat, lon) VALUES (?, ?, ?, ?)",
-                ("legacy", received_ms, lat, lon),
+                (track_id, received_ms, lat, lon),
             )
             if not self._persistent:
                 self._db.execute("""
@@ -106,13 +117,42 @@ class ObservationStore:
         return self._point((received_ms, lat, lon))
 
     def recent(self):
-        """Return a bounded, chronologically ordered JSON-compatible snapshot."""
+        """Return recent points from one run, never a route joining unrelated runs.
+
+        The unfiltered legacy viewer follows the most recently ingested track.
+        Dedicated historical queries select a track explicitly.
+        """
         with self._lock:
+            latest = self._db.execute(
+                "SELECT track_id FROM observations ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if latest is None:
+                return []
             rows = self._db.execute(
-                "SELECT received_ms, lat, lon FROM observations ORDER BY id DESC LIMIT ?",
-                (MAX_RECENT_POINTS,),
+                """SELECT received_ms, lat, lon FROM observations
+                   WHERE track_id = ? ORDER BY id DESC LIMIT ?""",
+                (latest[0], MAX_RECENT_POINTS),
             ).fetchall()
         return [self._point(row) for row in reversed(rows)]
+
+    def tracks(self):
+        """Bounded catalogue of runs, ordered by most recent ingestion."""
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT track_id, COUNT(*), MIN(received_ms), MAX(received_ms)
+                   FROM observations GROUP BY track_id ORDER BY MAX(id) DESC
+                   LIMIT ?""",
+                (MAX_TRACKS + 1,),
+            ).fetchall()
+        return {
+            "tracks": [
+                {"track_id": track_id, "count": count,
+                 "first": self._point((first_ms, 0, 0))["time"],
+                 "last": self._point((last_ms, 0, 0))["time"]}
+                for track_id, count, first_ms, last_ms in rows[:MAX_TRACKS]
+            ],
+            "truncated": len(rows) > MAX_TRACKS,
+        }
 
     def close(self):
         with self._lock:
