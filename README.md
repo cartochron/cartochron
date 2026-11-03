@@ -28,14 +28,15 @@ The Android session does not connect to the map server itself.
 
 ## Setup
 
-Python 3 and Ruby (for the Metasploit module) are required. The map server
-uses only the Python standard library.
+Python 3 and Ruby (for the Metasploit module) are required. Node.js is
+required to run the full test suite. The map server uses only the Python
+standard library.
 
 ```sh
 make                  # Fetch and integrity-check local Leaflet 1.9.4 assets
 make install-local    # Install the module into ~/.msf4/modules/
-make check            # Run Python/Ruby tests and JS tests if Node.js is installed
-make check-viewer     # Require Node.js; run the browser-logic tests
+make check            # Run all Python, Ruby, and JavaScript tests (no skipped suites)
+make check-viewer     # Run the browser-logic tests alone
 ```
 
 ## Local use (default)
