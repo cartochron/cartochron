@@ -135,6 +135,58 @@ test('gap markers explain time loss without inventing motion', () => {
   assert.match(ui.element('detail').textContent, /Gap before: 29m.*movement unknown/);
 });
 
+test('short receipt-time positioning jump is marked but never interpolated', () => {
+  const ui = viewer();
+  const first = point(0, 0);
+  const second = {...point(1, 0), lat: first.lat + 0.005,
+                  time: new Date(Date.parse(first.time) + 10_000).toISOString()};
+  const layers = ui.render([first, second]);
+  assert.equal(layers.filter(l => l.type === 'polyline').length, 0);
+  assert.match(ui.element('gap-status').textContent, /possible positioning jump/);
+  const rings = layers.filter(l => l.type === 'circle' && l.options.fillColor === '#ffc56b');
+  assert.equal(rings.length, 2);
+  assert.match(rings[0].tooltip.textContent, /Movement unverified/);
+  rings[1].events.click();
+  assert.match(ui.element('detail').textContent, /Possible positioning jump/);
+  const live = viewer();
+  live.render([first, second], 'live');
+  assert.match(live.element('status').textContent, /possible positioning jump/);
+});
+
+test('different locations with identical receipt timestamps do not form a route', () => {
+  const ui = viewer();
+  const first = point(0, 0);
+  const second = {...point(1, 0), lat: first.lat + 0.005, time: first.time};
+  const layers = ui.render([first, second]);
+  assert.equal(layers.filter(l => l.type === 'polyline').length, 0);
+  assert.match(ui.element('gap-status').textContent, /possible positioning jump/);
+});
+
+test('fix provenance is displayed without fabricating measurement age or accuracy', () => {
+  const ui = viewer();
+  let layers = ui.render([point(0)]);
+  assert.match(layers[0].tooltip.textContent, /Fix acquisition time unknown/);
+  assert.match(layers[0].tooltip.textContent, /Accuracy unknown/);
+  const reported = {...point(1), measured_time: '2026-11-02T10:00:00.000+00:00',
+                    provider: 'network', accuracy_m: 50};
+  layers = ui.render([reported]);
+  assert.match(layers[0].tooltip.textContent, /Reported fix time/);
+  assert.match(layers[0].tooltip.textContent, /Reported provider network/);
+  assert.match(layers[0].tooltip.textContent, /Reported accuracy 50 m/);
+});
+
+test('many discontinuities do not create unbounded map layers', () => {
+  const ui = viewer();
+  const start = Date.UTC(2026, 10, 2, 12);
+  const noisy = Array.from({length: 1000}, (_, i) => ({
+    id: i, lat: 47 + (i % 2) * 0.005, lon: 28,
+    time: new Date(start + i * 10_000).toISOString(),
+  }));
+  const layers = ui.render(noisy);
+  assert.ok(layers.length < 450, `created ${layers.length} map layers`);
+  assert.match(ui.element('gap-status').textContent, /999 possible positioning jumps/);
+});
+
 test('long histories render bounded dots, but line clicks inspect points between dots', () => {
   const ui = viewer();
   const layers = ui.render(Array.from({length: 5000}, (_, i) => point(i, i)));
@@ -215,6 +267,18 @@ test('multi-track overlays are independent, colored and clickable', async () => 
   assert.equal(ui.element('position').value, '0');
   assert.equal(queries.length, 2);
   assert.equal(ui.fitted.at(-1).length, 6);
+});
+
+test('comparison overlays also stop at suspected positioning jumps', () => {
+  const ui = viewer();
+  const first = point(0, 0);
+  const second = {...point(1, 0), lat: first.lat + 0.005,
+                  time: new Date(Date.parse(first.time) + 10_000).toISOString()};
+  ui.context.fixtureOverlay = [first, second];
+  ui.exec('renderOverlay(fixtureOverlay, "run-Z", "#8724d5")');
+  const overlays = ui.exec('overlayLayers.get("run-Z")').layers;
+  assert.equal(overlays.filter(l => l.type === 'polyline').length, 0);
+  assert.equal(overlays.filter(l => l.type === 'circle').length, 2);
 });
 
 test('comparison time scope filters every overlay', async () => {

@@ -13,6 +13,8 @@ const OVERLAY_COLORS = ['#8724d5', '#007c78', '#ca325a'];
 const OVERLAY_OUTLINE = '#162735'; // Dark casing works over light and busy tiles.
 const MAX_OVERLAYS = 3;
 const NEARBY_FIX_MS = 5 * 60 * 1000; // Do not display an old fix as a current location.
+const JUMP_MIN_M = 200; // Review-only heuristic; not evidence of inaccurate GPS.
+const JUMP_MIN_MPS = 25; // Apparent speed from *receipt* times, not measured motion.
 const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
@@ -39,6 +41,7 @@ let lastSignature = '';
 let lastIndex = 0;
 let ticks = 0;
 let recordingGaps = [];
+let positioningJumps = [];
 
 function status(message) { $('status').textContent = message; }
 function localTime(value) { return new Date(value).toLocaleString(); }
@@ -66,6 +69,7 @@ function clearView() {
   revision++;
   points = [];
   recordingGaps = [];
+  positioningJumps = [];
   cursor = null;
   lastSignature = '';
   layer.clearLayers();
@@ -87,11 +91,20 @@ function clearView() {
   status(selectedTrack ? 'Loading observations…' : 'Waiting for a recording run');
 }
 
+function fixDetails(p) {
+  // Producer metadata is reported, not verified. Do not substitute receipt time.
+  return (p.measured_time ? `Reported fix time ${localTime(p.measured_time)}`
+    : 'Fix acquisition time unknown')
+    + (p.provider ? ` · Reported provider ${p.provider}` : '')
+    + (p.accuracy_m !== undefined ? ` · Reported accuracy ${p.accuracy_m} m`
+      : ' · Accuracy unknown');
+}
+
 function pointText(p, index, track = selectedTrack, count = points.length) {
   // Use a text node: producer-controlled track IDs must never become HTML.
   const label = document.createElement('span');
-  label.textContent = `${track} · ${index + 1}/${count} · ${localTime(p.time)} · `
-    + `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
+  label.textContent = `${track} · ${index + 1}/${count} · Received ${localTime(p.time)} · `
+    + `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${fixDetails(p)}`;
   return label;
 }
 
@@ -131,23 +144,37 @@ function gapDuration(ms) {
 
 function routeParts(observations) {
   const gaps = [];
+  const jumps = [];
   const segments = [];
   const ends = new Set([0, observations.length - 1]);
   let current = [], previous = null;
   for (let index = 0; index < observations.length; index++) {
     const p = observations[index];
-    if (previous && Date.parse(p.time) - Date.parse(previous.time) > GAP_MS) {
-      gaps.push({before: index - 1, after: index, duration: Date.parse(p.time) - Date.parse(previous.time)});
-      segments.push(current);
-      ends.add(index - 1);
-      ends.add(index);
-      current = [];
+    if (previous) {
+      const elapsed = Date.parse(p.time) - Date.parse(previous.time);
+      if (elapsed > GAP_MS) {
+        gaps.push({before: index - 1, after: index, duration: elapsed});
+      } else if (elapsed >= 0) {
+        const meters = distanceMeters(previous, p);
+        if (meters >= JUMP_MIN_M &&
+            (elapsed === 0 || meters / (elapsed / 1000) >= JUMP_MIN_MPS))
+          jumps.push({before: index - 1, after: index, meters, elapsed});
+      }
+      const isGap = gaps.at(-1)?.after === index;
+      if (isGap || jumps.at(-1)?.after === index) {
+        segments.push(current);
+        if (isGap) {
+          ends.add(index - 1);
+          ends.add(index);
+        }
+        current = [];
+      }
     }
     current.push(index);
     previous = p;
   }
   if (current.length) segments.push(current);
-  return {segments: segments.filter(segment => segment.length > 1), ends, gaps};
+  return {segments: segments.filter(segment => segment.length > 1), ends, gaps, jumps};
 }
 
 function fitObservations(observations) {
@@ -169,11 +196,15 @@ function render(fit = false) {
     status('No observations in this interval');
     return;
   }
-  const {segments: routeSegments, ends, gaps} = routeParts(points);
+  const {segments: routeSegments, ends, gaps, jumps} = routeParts(points);
   recordingGaps = gaps;
-  $('gap-status').textContent = gaps.length
-    ? `${gaps.length} recording gap${gaps.length === 1 ? '' : 's'} over 10 minutes (movement unknown)`
-    : '';
+  positioningJumps = jumps;
+  const warnings = [];
+  if (gaps.length)
+    warnings.push(`${gaps.length} recording gap${gaps.length === 1 ? '' : 's'} over 10 minutes (movement unknown)`);
+  if (jumps.length)
+    warnings.push(`${jumps.length} possible positioning jump${jumps.length === 1 ? '' : 's'} (movement unverified)`);
+  $('gap-status').textContent = warnings.join(' · ');
   for (const segment of routeSegments) {
     L.polyline(segment.map(index => [points[index].lat, points[index].lon]), {
       color: '#57b9ef', weight: 3
@@ -212,6 +243,24 @@ function render(fit = false) {
     }
   }
 
+  // A receipt-time discontinuity is not a proven movement or a proven bad fix.
+  // Keep both original measurements; do not connect them with a route line.
+  // Keep highlighted endpoints bounded, even if every incoming fix jumps.
+  const jumpStride = Math.max(1, Math.ceil(jumps.length / MAX_NODES));
+  for (let i = 0; i < jumps.length; i += jumpStride) {
+    const jump = jumps[i];
+    for (const [index, side] of [[jump.before, 'Before'], [jump.after, 'After']]) {
+      const p = points[index];
+      const label = document.createElement('span');
+      label.textContent = `${side} possible positioning jump: ${Math.round(jump.meters)} m in `
+        + `${(jump.elapsed / 1000).toFixed(1)}s between receipts · Movement unverified`;
+      L.circleMarker([p.lat, p.lon], {
+        radius: 8, weight: 3, color: '#14212b', fillColor: '#ffc56b',
+        fillOpacity: 0.95, bubblingMouseEvents: false
+      }).bindTooltip(label).on('click', () => inspectPoint(index)).addTo(layer);
+    }
+  }
+
   if (mode === 'history') {
     $('inspect').hidden = false;
     $('position').max = String(points.length - 1);
@@ -226,7 +275,8 @@ function render(fit = false) {
     timeLayer.clearLayers();
     $('time-panel').hidden = true;
     const p = points.at(-1);
-    status(`${points.length} recent observations · Last received ${localTime(p.time)}`);
+    status(`${points.length} recent observations · Last received ${localTime(p.time)}`
+      + (jumps.length ? ` · ${jumps.length} possible positioning jump${jumps.length === 1 ? '' : 's'}` : ''));
   }
   if (fit) {
     fitObservations(points);
@@ -243,9 +293,13 @@ function showInspection() {
   lastIndex = Number($('position').value);
   const p = points[lastIndex];
   const adjacent = recordingGaps.find(g => g.before === lastIndex || g.after === lastIndex);
+  const jump = positioningJumps.find(j => j.before === lastIndex || j.after === lastIndex);
   const note = adjacent ? ` · ${adjacent.before === lastIndex ? 'Gap after' : 'Gap before'}: `
     + `${gapDuration(adjacent.duration)} without observations; movement unknown` : '';
-  $('detail').textContent = `${lastIndex + 1}/${points.length} · ${localTime(p.time)} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${note}`;
+  const jumpNote = jump ? ` · Possible positioning jump: ${Math.round(jump.meters)} m `
+    + `in ${(jump.elapsed / 1000).toFixed(1)}s between receipts; movement unverified` : '';
+  $('detail').textContent = `${lastIndex + 1}/${points.length} · Received ${localTime(p.time)} · `
+    + `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${fixDetails(p)}${note}${jumpNote}`;
   inspectedMarker = L.circleMarker([p.lat, p.lon], {
     radius: 8, weight: 2, color: '#edf2f5', fillColor: '#dc6adc', fillOpacity: 1
   }).addTo(layer);
