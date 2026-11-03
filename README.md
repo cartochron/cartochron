@@ -1,16 +1,19 @@
-# msf-gps-map
+# Cartochron
 
-Small GPS telemetry viewer and Metasploit post module for authorized Android
-security testing. Coordinates are kept in memory and displayed on a Leaflet
-map. The server works locally by default and can also run on a VPS.
+Cartochron records and displays GPS observations for authorized security
+research. It started as `msf-gps-map`, and retains its small HTTP interface
+and Metasploit integration. The standalone server can run with an in-memory
+SQLite database or preserve observations on disk; the Leaflet map shows the
+latest observations. The repository and command filenames are unchanged.
 
 ## How it works
 
 1. An authorized Android Meterpreter session provides coordinates to the
    `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
 2. The module posts `{"lat": ..., "lon": ...}` to the map server.
-3. `map_server.py` keeps up to 1,000 observations in RAM. The browser polls
-   `GET /api/points` to draw the route.
+3. `map_server.py` records the observations in SQLite, in RAM by default or
+   in a persistent database when `--db` is specified. The browser polls
+   `GET /api/points` for the latest 1,000 observations to draw the route.
 
 The Metasploit operator sends HTTP requests directly to the map server.
 The Android session does not connect to the map server itself.
@@ -57,6 +60,33 @@ python3 map_server.py --port 9876
 ```
 
 Set `ENDPOINT` to `http://127.0.0.1:9876/api/position` in the module.
+
+## Recording to a SQLite file (optional)
+
+No database server or Python package installation is needed. The default
+command above still holds at most 1,000 observations in memory and discards
+them on exit. To preserve observations across restarts:
+
+```sh
+install -d -m 700 "$HOME/.local/share/cartochron"
+python3 map_server.py --db "$HOME/.local/share/cartochron/observations.sqlite3"
+```
+
+`--db` creates a private file (mode `0600`) or opens an existing compatible
+Cartochron database. The parent directory must already exist. Existing
+world/group-accessible files and unrelated or unsupported schemas are refused.
+Protect the database, its directory, and any backups: location history is
+sensitive data. Do not commit database files to Git.
+
+**Persistence and map history are different features.** With `--db`, every
+accepted observation remains stored, but the current `GET /api/points` API
+and Leaflet map show only the *most recent 1,000* observations. Track isolation,
+time-range queries, and the historical timeline are planned follow-up changes.
+No older rows are silently deleted from a persistent database.
+
+For backups, stop the server before copying the database file, or use SQLite's
+backup facilities while it is running. There is no retention or automatic
+pruning in persistent mode; the operator owns storage and deletion policy.
 
 ## VPS / network use
 
@@ -164,9 +194,10 @@ shell command history.
 
 ## Notes
 
-- Observations are RAM-only, capped at 1,000 points, and erased when the
-  server exits. There is no persistence or per-device separation.
-- `GET /api/points` returns the full current history. Authentication protects
+- Without `--db`, at most 1,000 observations are kept in RAM and erased when
+  the server exits. With `--db`, all accepted observations are retained on disk.
+  There is not yet per-recording-run separation, even in persistent mode.
+- `GET /api/points` returns the latest 1,000 observations. Authentication protects
   the viewer and the writer together, not as separate users or roles.
 - The server checks Host and Origin headers. Local unauthenticated use retains
   strict loopback Host checking; remote Host names are accepted for network
@@ -180,7 +211,8 @@ shell command history.
 ## Project files
 
 ```text
-map_server.py          Python HTTP server and in-memory store
+map_server.py          Python HTTP server and observation API
+observation_store.py   SQLite storage (memory or disk)
 index.html             Leaflet map viewer
 gps_streamer.rb         Metasploit Android post module
 vendor_leaflet.py      Downloads and verifies pinned Leaflet assets
