@@ -115,6 +115,13 @@ function routeParts(observations) {
   return {segments: segments.filter(segment => segment.length > 1), ends};
 }
 
+function fitObservations(observations) {
+  if (!observations.length) return;
+  const bounds = L.latLngBounds(observations.map(p => [p.lat, p.lon]));
+  if (observations.length === 1) map.setView(bounds.getCenter(), 15);
+  else map.fitBounds(bounds, {padding: [25, 25], maxZoom: 16});
+}
+
 function render(fit = false) {
   const signature = points.length + ':' + (points[0]?.id ?? points[0]?.time ?? '')
     + ':' + JSON.stringify(points.at(-1) || '');
@@ -164,9 +171,7 @@ function render(fit = false) {
     status(`${points.length} recent observations · Last received ${localTime(p.time)}`);
   }
   if (fit) {
-    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
-    if (points.length === 1) map.setView(bounds.getCenter(), 15);
-    else map.fitBounds(bounds, {padding: [25, 25], maxZoom: 16});
+    fitObservations(points);
   } else if (mode === 'live') {
     const latest = points.at(-1);
     map.panTo([latest.lat, latest.lon], {animate: false});
@@ -241,6 +246,7 @@ async function refreshTracks() {
       secondary.add(new Option(compareTrack + ' (not in recent list)', compareTrack));
     }
     secondary.value = compareTrack;
+    $('compare-time-control').hidden = !compareTrack;
     if (result.truncated) $('track').title = 'Showing the 100 most recently updated runs';
     else $('track').title = '';
     if (selectedTrack !== previous) {
@@ -290,10 +296,10 @@ async function loadHistory(more = false) {
     const result = await getJSON('/api/points?' + url);
     if (token !== revision || mode !== 'history') return;
     const firstPage = !more;
-    if (firstPage) loadComparison();
     points = more ? points.concat(result.points) : result.points;
     cursor = result.next_cursor;
     render(firstPage);
+    if (firstPage) loadComparison(); // Fit both routes only after the primary has rendered.
     const capped = points.length >= MAX_DISPLAY && cursor;
     $('more').hidden = !cursor || Boolean(capped);
     $('page-status').textContent = capped
@@ -335,15 +341,21 @@ async function loadComparison() {
   const generation = ++compareGeneration;
   const token = revision;
   const track = compareTrack;
+  const scope = $('compare-time').value || 'all';
   compareLayer.clearLayers();
+  $('compare-time-control').hidden = !track;
   $('compare-status').textContent = '';
   if (!track || track === selectedTrack || mode !== 'history' || !bounds) return;
+  $('compare-status').textContent = 'Loading overlay…';
   try {
     const observations = [];
     let next = null;
     do {
-      const query = new URLSearchParams({track_id: track, from: bounds.from,
-        to: bounds.to, limit: String(PAGE_SIZE)});
+      const query = new URLSearchParams({track_id: track, limit: String(PAGE_SIZE)});
+      if (scope === 'interval') {
+        query.set('from', bounds.from);
+        query.set('to', bounds.to);
+      }
       if (next) query.set('cursor', next);
       const result = await getJSON('/api/points?' + query);
       if (generation !== compareGeneration || token !== revision || mode !== 'history') return;
@@ -351,7 +363,13 @@ async function loadComparison() {
       next = result.next_cursor;
     } while (next && observations.length < MAX_DISPLAY);
     renderComparison(observations, track);
-    $('compare-status').textContent = `${observations.length} overlay fixes${next ? ' (partial)' : ''}`;
+    if (observations.length) fitObservations(points.concat(observations));
+    const suffix = next ? ' (partial; narrow using Same interval)' : '';
+    $('compare-status').textContent = observations.length
+      ? `${observations.length} overlay fixes${suffix}`
+      : scope === 'interval'
+        ? 'No overlay fixes in this interval; try Entire run.'
+        : 'This recording run has no observations.';
   } catch (error) {
     if (generation === compareGeneration && token === revision)
       $('compare-status').textContent = 'Overlay unavailable: ' + error.message;
@@ -372,6 +390,7 @@ $('compare').addEventListener('change', () => {
   compareTrack = $('compare').value;
   loadComparison();
 });
+$('compare-time').addEventListener('change', () => loadComparison());
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));
 $('apply').addEventListener('click', () => loadHistory());

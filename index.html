@@ -59,6 +59,10 @@
       <button id="apply" type="button">Show interval</button>
       <button id="more" type="button" hidden>Load more</button>
       <label>Overlay run <select id="compare" aria-label="Compare with another recording run"><option value="">None</option></select></label>
+      <label id="compare-time-control" hidden>Overlay time <select id="compare-time" aria-label="Overlay time range">
+        <option value="all">Entire run</option>
+        <option value="interval">Same interval</option>
+      </select></label>
       <span id="compare-status" aria-live="polite"></span>
       <span id="page-status" aria-live="polite"></span>
     </div>
