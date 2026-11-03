@@ -6,6 +6,7 @@ import tempfile
 import http.client
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import unittest
 from unittest.mock import patch
@@ -176,6 +177,41 @@ class MapServerTest(unittest.TestCase):
         after_end = json.loads(self.request("GET", "/api/points?" + urlencode(
             {"track_id": "A", "from": end}))[2])
         self.assertEqual([p["lat"] for p in after_end["points"]], [49])
+
+    def test_persistent_tracks_and_history_survive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = os.path.join(directory, "observations.sqlite3")
+            self.server.shutdown()
+            self.server.server_close()
+            self.thread.join(timeout=2)
+            self.start_server(database=database)
+            payload = b'{"lat":47,"lon":28,"track_id":"run-1"}'
+            self.assertEqual(self.request("POST", "/api/position", payload,
+                             {"Content-Type": "application/json"})[0], 201)
+            self.server.shutdown()
+            self.server.server_close()
+            self.thread.join(timeout=2)
+            self.start_server(database=database)
+            status, _, body = self.request("GET", "/api/points?track_id=run-1")
+            self.assertEqual(status, 200)
+            self.assertEqual([point["lat"] for point in json.loads(body)["points"]], [47])
+            self.assertEqual(json.loads(self.request("GET", "/api/tracks")[2])["tracks"][0]["track_id"],
+                             "run-1")
+
+    def test_concurrent_producers_preserve_track_ownership(self):
+        def send(index):
+            track = "A" if index % 2 else "B"
+            payload = json.dumps({"lat": float(index), "lon": 28,
+                                  "track_id": track}).encode()
+            return self.request("POST", "/api/position", payload,
+                                {"Content-Type": "application/json"})[0]
+
+        with ThreadPoolExecutor(max_workers=8) as workers:
+            self.assertEqual(list(workers.map(send, range(40))), [201] * 40)
+        for track, parity in (("A", 1), ("B", 0)):
+            result = json.loads(self.request("GET", "/api/points?track_id=" + track)[2])
+            self.assertEqual(len(result["points"]), 20)
+            self.assertTrue(all(int(row["lat"]) % 2 == parity for row in result["points"]))
 
     def test_historical_parameters_fail_closed(self):
         for query in (

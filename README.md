@@ -3,17 +3,22 @@
 Cartochron records and displays GPS observations for authorized security
 research. It started as `msf-gps-map`, and retains its small HTTP interface
 and Metasploit integration. The standalone server can run with an in-memory
-SQLite database or preserve observations on disk; the Leaflet map shows the
-latest observations. The repository and command filenames are unchanged.
+SQLite database or preserve observations on disk. Each recording run has a
+track identifier, and the HTTP API supports bounded historical queries.
+The Leaflet viewer still shows the latest active run; time navigation is a
+separate upcoming frontend change. Repository and command filenames remain
+unchanged.
 
 ## How it works
 
 1. An authorized Android Meterpreter session provides coordinates to the
    `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
-2. The module posts `{"lat": ..., "lon": ...}` to the map server.
+2. The module posts `{"lat": ..., "lon": ..., "track_id": ...}` to the
+   server. A new random `track_id` is generated once per Metasploit job.
 3. `map_server.py` records the observations in SQLite, in RAM by default or
    in a persistent database when `--db` is specified. The browser polls
-   `GET /api/points` for the latest 1,000 observations to draw the route.
+   `GET /api/points` for the latest 1,000 observations **from the most recently
+   updated run**, never connecting points from unrelated runs.
 
 The Metasploit operator sends HTTP requests directly to the map server.
 The Android session does not connect to the map server itself.
@@ -51,7 +56,13 @@ msf6 post(android/gather/gps_streamer) > run -j
 ```
 
 The default `ENDPOINT` is `http://127.0.0.1:8765/api/position`.
-Stop the background job using `jobs -k <JobID>`.
+Stop the background job using `jobs -k <JobID>`. The module prints the
+recording-run ID when starting. `TRACK_ID` is optional; leave it empty to
+create a fresh random ID each run. Set it explicitly (1–64 ASCII letters,
+digits, `.`, `_`, or `-`, starting with a letter or digit) only when you
+intentionally want multiple jobs to append to the same recording run.
+A track ID groups observations; it is **not** a device identifier or an
+authorization credential.
 
 For a different local port:
 
@@ -79,9 +90,10 @@ Protect the database, its directory, and any backups: location history is
 sensitive data. Do not commit database files to Git.
 
 **Persistence and map history are different features.** With `--db`, every
-accepted observation remains stored, but the current `GET /api/points` API
-and Leaflet map show only the *most recent 1,000* observations. Track isolation,
-time-range queries, and the historical timeline are planned follow-up changes.
+accepted observation remains stored. The existing unfiltered `GET /api/points`
+and Leaflet map show up to 1,000 recent points from the most recently updated
+run. The historical query API can read other runs and time periods; the
+interactive timeline and track selector have not been implemented yet.
 No older rows are silently deleted from a persistent database.
 
 For backups, stop the server before copying the database file, or use SQLite's
@@ -171,6 +183,63 @@ The module enables TLS for `https://` URLs, uses the system's normal
 certificate validation, and reports non-2xx server responses as failures.
 Use a valid certificate rather than disabling verification.
 
+## Tracks and historical queries
+
+A recording run is identified by `track_id`. Existing senders that POST only
+`lat` and `lon` continue to work and write to the `legacy` track. The server
+still returns the original `lat`, `lon`, and `time` fields on successful POST.
+`time` is the server's **receipt time**, not necessarily the moment when a
+GPS device obtained a fix. The database retains integer UTC milliseconds.
+
+The API has three relevant GET operations:
+
+| Endpoint | Response |
+| --- | --- |
+| `GET /api/points` | Original `{"points": [...]}` response, now limited to a single most recently updated run |
+| `GET /api/tracks` | Up to 100 run summaries, with counts and first/last receipt times; `truncated` reports if more exist |
+| `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
+
+For example, with a local server containing data for `lab-run-1`:
+
+```sh
+curl -fsSG 'http://127.0.0.1:8765/api/points' \
+    --data-urlencode 'track_id=lab-run-1' \
+    --data-urlencode 'from=2026-11-02T08:00:00Z' \
+    --data-urlencode 'to=2026-11-02T18:00:00Z' \
+    --data-urlencode 'limit=100'
+```
+
+The optional `from` and `to` timestamps are RFC3339 with timezone, at most
+millisecond precision. An interval is `[from, to)`: inclusive start, exclusive
+end. An omitted bound is open-ended. Values are converted to UTC.
+
+Each historical response has this shape:
+
+```json
+{
+  "track_id": "lab-run-1",
+  "points": [
+    {"id": 4, "received_ms": 1793620800000,
+     "lat": 47.0, "lon": 28.0, "time": "2026-11-02T12:00:00.000+00:00"}
+  ],
+  "truncated": false,
+  "next_cursor": null
+}
+```
+
+Historical queries return up to 1,000 points per request (`limit=1..1000`,
+default 1,000), ordered by `(received_ms, id)`. A truncated response supplies
+`next_cursor`, a non-secret paging position. Request the same track and time
+interval again with `cursor=<next_cursor>` to fetch the next page. Stop when
+`next_cursor` is `null`. The cursor is not a database snapshot: if new
+observations arrive during paging, the result set can change. Large histories
+are never silently truncated without reporting that another page exists.
+
+The current Leaflet page still follows the most recently ingested run; with
+multiple simultaneously updating runs it may switch between them. A track
+selector and historical timeline belong to the next frontend stage. For now,
+use the query API to retrieve individual runs and time periods.
+
 ## Manual ingestion test
 
 With the default, unauthenticated local server:
@@ -178,7 +247,7 @@ With the default, unauthenticated local server:
 ```sh
 curl -fsS http://127.0.0.1:8765/api/position \
     -H 'Content-Type: application/json' \
-    -d '{"lat":47.000,"lon":28.000}'
+    -d '{"lat":47.000,"lon":28.000,"track_id":"lab-run-1"}'
 ```
 
 For an authenticated HTTPS server:
@@ -186,7 +255,7 @@ For an authenticated HTTPS server:
 ```sh
 curl -fsS --user operator https://gps.example.com/api/position \
     -H 'Content-Type: application/json' \
-    -d '{"lat":47.000,"lon":28.000}'
+    -d '{"lat":47.000,"lon":28.000,"track_id":"lab-run-1"}'
 ```
 
 `curl --user operator` prompts for the password without including it in
@@ -194,11 +263,13 @@ shell command history.
 
 ## Notes
 
-- Without `--db`, at most 1,000 observations are kept in RAM and erased when
-  the server exits. With `--db`, all accepted observations are retained on disk.
-  There is not yet per-recording-run separation, even in persistent mode.
-- `GET /api/points` returns the latest 1,000 observations. Authentication protects
-  the viewer and the writer together, not as separate users or roles.
+- Without `--db`, at most 1,000 observations **across all runs** are kept in
+  RAM and erased when the server exits. With `--db`, all accepted observations
+  are retained on disk; no automatic retention policy is imposed.
+- Unfiltered `GET /api/points` returns the latest 1,000 observations from the
+  currently most recently updated run. Authentication protects the viewer and
+  writer together, not as separate users or roles. Track IDs are not access
+  controls; an authenticated viewer can query every track.
 - The server checks Host and Origin headers. Local unauthenticated use retains
   strict loopback Host checking; remote Host names are accepted for network
   listeners and authenticated reverse-proxy deployments.
