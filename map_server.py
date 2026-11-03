@@ -171,6 +171,21 @@ class Handler(BaseHTTPRequestHandler):
             if not asset.is_file():
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
+        if path == "/api/points/recent":
+            # Explicit track selection is a separate operation from ascending,
+            # cursor-based history queries. Do not confuse recent with page 1.
+            query = urlsplit(self.path).query
+            try:
+                params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                                  max_num_fields=2)
+                if set(params) != {"track_id"} or len(params["track_id"]) != 1:
+                    raise ValueError("one track_id is required")
+                data = {"points": self.server.store.recent(params["track_id"][0])}
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/points":
             query = urlsplit(self.path).query
             try:
@@ -225,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         # Do not log coordinates or request bodies.
-        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/tracks"):
+        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/points/recent", "/api/tracks"):
             return
         super().log_message(fmt, *args)
 

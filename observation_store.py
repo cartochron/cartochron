@@ -127,22 +127,26 @@ class ObservationStore:
                 """, (MAX_RECENT_POINTS,))
         return self._point((received_ms, lat, lon))
 
-    def recent(self):
-        """Return recent points from one run, never a route joining unrelated runs.
+    def recent(self, track_id=None):
+        """Return the latest points from one run, in chronological order.
 
-        The unfiltered legacy viewer follows the most recently ingested track.
-        Dedicated historical queries select a track explicitly.
+        An omitted ID retains the original behavior: choose the last run to
+        receive an observation. An explicit ID stays pinned to that run.
         """
+        if track_id is not None and not valid_track_id(track_id):
+            raise ValueError("invalid track_id")
         with self._lock:
-            latest = self._db.execute(
-                "SELECT track_id FROM observations ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if latest is None:
-                return []
+            if track_id is None:
+                latest = self._db.execute(
+                    "SELECT track_id FROM observations ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if latest is None:
+                    return []
+                track_id = latest[0]
             rows = self._db.execute(
                 """SELECT received_ms, lat, lon FROM observations
                    WHERE track_id = ? ORDER BY received_ms DESC, id DESC LIMIT ?""",
-                (latest[0], MAX_RECENT_POINTS),
+                (track_id, MAX_RECENT_POINTS),
             ).fetchall()
         return [self._point(row) for row in reversed(rows)]
 

@@ -138,6 +138,23 @@ class MapServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual([p["lat"] for p in json.loads(body)["points"]], [47, 49])
 
+    def test_recent_track_query_stays_on_selected_run(self):
+        for lat, track in ((47, "A"), (48, "B"), (49, "A"), (50, "B")):
+            payload = json.dumps({"lat": lat, "lon": 28, "track_id": track}).encode()
+            self.assertEqual(self.request("POST", "/api/position", payload,
+                             {"Content-Type": "application/json"})[0], 201)
+        self.assertEqual([p["lat"] for p in json.loads(
+            self.request("GET", "/api/points/recent?track_id=A")[2])["points"]], [47, 49])
+        self.assertEqual([p["lat"] for p in json.loads(
+            self.request("GET", "/api/points/recent?track_id=B")[2])["points"]], [48, 50])
+        self.assertEqual(json.loads(self.request(
+            "GET", "/api/points/recent?track_id=unknown")[2]), {"points": []})
+        self.assertEqual([p["lat"] for p in json.loads(
+            self.request("GET", "/api/points")[2])["points"]], [48, 50])
+        for query in ("", "?track_id=", "?track_id=A&track_id=B",
+                      "?track_id=A&limit=1", "?from=x", "?track_id=../bad"):
+            self.assertEqual(self.request("GET", "/api/points/recent" + query)[0], 400)
+
     def test_invalid_track_id_never_persists(self):
         for invalid in (None, "", "../bad", "a b", "x" * 65, 100):
             with self.subTest(invalid=invalid):
