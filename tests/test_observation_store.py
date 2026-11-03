@@ -167,7 +167,7 @@ class ObservationStoreTest(unittest.TestCase):
             store = ObservationStore(filename)
             store.close()
             with closing(sqlite3.connect(filename)) as db, db:
-                db.execute("PRAGMA user_version = 2")
+                db.execute("PRAGMA user_version = 3")
             with self.assertRaisesRegex(ValueError, "unsupported database schema"):
                 ObservationStore(filename)
 
