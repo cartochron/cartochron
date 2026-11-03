@@ -147,6 +147,49 @@ class MapServerTest(unittest.TestCase):
                                       {"Content-Type": "text/plain"})[0], 415)
         self.assertEqual(self.request("GET", "/api/points")[0], 200)
 
+    def test_database_isolation_between_servers(self):
+        # A server has its own observation history, not module-level state.
+        self.assertEqual(self.position()[0], 201)
+        other = map_server.Server(("127.0.0.1", 0), map_server.Handler)
+        thread = threading.Thread(target=other.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", other.server_port, timeout=2)
+            try:
+                connection.request("GET", "/api/points")
+                response = connection.getresponse()
+                self.assertEqual(json.loads(response.read()), {"points": []})
+            finally:
+                connection.close()
+        finally:
+            other.shutdown()
+            other.server_close()
+            thread.join(timeout=2)
+
+    def test_persistent_observations_survive_server_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = os.path.join(directory, "observations.sqlite3")
+            self.server.shutdown()
+            self.server.server_close()
+            self.thread.join(timeout=2)
+            self.start_server(database=filename)
+            self.assertEqual(self.position()[0], 201)
+            self.server.shutdown()
+            self.server.server_close()
+            self.thread.join(timeout=2)
+            self.start_server(database=filename)
+            status, _, body = self.request("GET", "/api/points")
+            self.assertEqual(status, 200)
+            self.assertEqual(len(json.loads(body)["points"]), 1)
+
+    def test_storage_failure_does_not_acknowledge_position(self):
+        # A failed write must not be mistaken for an accepted observation.
+        self.server.store.close()
+        status, _, _ = self.position()
+        self.assertEqual(status, 503)
+        status, _, _ = self.request("GET", "/api/points")
+        self.assertEqual(status, 503)
+
     def test_invalid_port_is_rejected(self):
         for port in ("0", "65536", "hello"):
             with self.assertRaises(Exception):

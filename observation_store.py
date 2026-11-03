@@ -38,6 +38,8 @@ class ObservationStore:
     @staticmethod
     def _prepare_file(filename):
         """Create private database files; reject existing publicly readable ones."""
+        if os.fspath(filename) == ":memory:":
+            raise ValueError("--db needs a filesystem path, not SQLite's :memory: name")
         path = Path(filename)
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -62,7 +64,10 @@ class ObservationStore:
         ).fetchall()
         if existing:
             raise ValueError("database has no Cartochron schema version; refusing to modify it")
+        # DDL and version stamp must commit together. A crash must not leave
+        # a versionless, half-created database that cannot be reopened.
         with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
             self._db.execute("""
                 CREATE TABLE observations (
                     id INTEGER PRIMARY KEY,

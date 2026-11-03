@@ -204,18 +204,18 @@ def main():
         parser.error(str(exc))
     if not (_ROOT / "vendor/leaflet/leaflet.js").is_file() or not (_ROOT / "vendor/leaflet/leaflet.css").is_file():
         parser.error("Leaflet assets missing; run: python3 vendor_leaflet.py")
-    print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
-    if args.db:
-        print("Recording observations in SQLite (persistent).", flush=True)
-    else:
-        print("Observations are held in RAM and erased when this program exits.", flush=True)
-    if args.bind not in ("127.0.0.1", "localhost"):
-        print("WARNING: HTTP traffic is not encrypted; use HTTPS or a private network.", flush=True)
-        if authorization is None:
-            print("WARNING: map and ingestion endpoints are publicly accessible without authentication.", flush=True)
     try:
         with Server((args.bind, args.port), Handler, authorization=authorization,
                     database=args.db) as server:
+            print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
+            if args.db:
+                print("Recording observations in SQLite (persistent).", flush=True)
+            else:
+                print("Observations are held in RAM and erased when this program exits.", flush=True)
+            if args.bind not in ("127.0.0.1", "localhost"):
+                print("WARNING: HTTP traffic is not encrypted; use HTTPS or a private network.", flush=True)
+                if authorization is None:
+                    print("WARNING: map and ingestion endpoints are publicly accessible without authentication.", flush=True)
             server.serve_forever()
     except KeyboardInterrupt:
         pass
