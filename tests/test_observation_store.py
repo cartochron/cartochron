@@ -136,6 +136,38 @@ class ObservationStoreTest(unittest.TestCase):
         finally:
             store.close()
 
+    def test_catalogues_keep_ingestion_order_and_all_source_runs(self):
+        """A clock adjustment does not reorder runs or hide idle sources."""
+        store = ObservationStore()
+        try:
+            source_a = store.enroll("A")
+            source_b = store.enroll("B (idle)")
+            # Last received point in run-A has an earlier timestamp than run-B.
+            # Catalogue order is by row ID, while first/last are clock bounds.
+            with patch("observation_store.time.time_ns", side_effect=[
+                1_700_000_000_000_000_000,
+                1_700_000_002_000_000_000,
+                1_699_999_999_000_000_000,
+            ]):
+                store.record(47, 28, "run-A", source_a)
+                store.record(48, 29, "run-B")
+                store.record(49, 30, "run-A", source_a)
+            catalogue = store.tracks()["tracks"]
+            self.assertEqual([run["track_id"] for run in catalogue], ["run-A", "run-B"])
+            self.assertEqual([run["count"] for run in catalogue], [2, 1])
+            self.assertEqual(catalogue[0]["source_id"], source_a)
+            self.assertEqual(catalogue[0]["source_label"], "A")
+            self.assertEqual(catalogue[0]["first"], "2023-11-14T22:13:19.000+00:00")
+            self.assertEqual(catalogue[0]["last"], "2023-11-14T22:13:20.000+00:00")
+            self.assertIsNone(catalogue[1]["source_id"])
+            self.assertEqual(store.sources()["sources"], [
+                {"source_id": source_a, "label": "A", "runs": 1,
+                 "last": "2023-11-14T22:13:20.000+00:00"},
+                {"source_id": source_b, "label": "B (idle)", "runs": 0, "last": None},
+            ])
+        finally:
+            store.close()
+
     def test_default_database_is_in_memory_and_bounded(self):
         store = ObservationStore()
         try:

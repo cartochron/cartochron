@@ -189,10 +189,13 @@ class ObservationStore:
         """Return an authenticated, bounded source catalogue, including idle sources."""
         with self._lock:
             rows = self._db.execute("""
-                SELECT s.source_id, s.label, COUNT(DISTINCT r.track_id), MAX(o.received_ms)
+                SELECT s.source_id, s.label, COUNT(r.track_id), MAX(fix.last_ms)
                 FROM sources s
                 LEFT JOIN runs r ON r.source_id = s.source_id
-                LEFT JOIN observations o ON o.track_id = r.track_id
+                LEFT JOIN (
+                    SELECT track_id, MAX(received_ms) AS last_ms
+                    FROM observations GROUP BY track_id
+                ) AS fix ON fix.track_id = r.track_id
                 GROUP BY s.source_id
                 ORDER BY s.label, s.source_id LIMIT ?
             """, (MAX_SOURCES + 1,)).fetchall()
@@ -303,11 +306,18 @@ class ObservationStore:
         """Bounded catalogue of runs, ordered by most recent ingestion."""
         with self._lock:
             rows = self._db.execute(
-                """SELECT o.track_id, r.source_id, s.label, COUNT(*), MIN(o.received_ms), MAX(o.received_ms)
-                   FROM observations o LEFT JOIN runs r ON r.track_id = o.track_id
-                   LEFT JOIN sources s ON s.source_id = r.source_id
-                   GROUP BY o.track_id, r.source_id, s.label ORDER BY MAX(o.id) DESC
-                   LIMIT ?""",
+                """                SELECT runs.track_id, r.source_id, s.label,
+                       runs.count, runs.first_ms, runs.last_ms
+                FROM (
+                    SELECT track_id, COUNT(*) AS count,
+                           MIN(received_ms) AS first_ms, MAX(received_ms) AS last_ms,
+                           MAX(id) AS last_id
+                    FROM observations GROUP BY track_id
+                    ORDER BY last_id DESC LIMIT ?
+                ) AS runs
+                LEFT JOIN runs r ON r.track_id = runs.track_id
+                LEFT JOIN sources s ON s.source_id = r.source_id
+                ORDER BY runs.last_id DESC""",
                 (MAX_TRACKS + 1,),
             ).fetchall()
         return {
