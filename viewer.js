@@ -32,6 +32,7 @@ let tracksBusy = false;
 let lastSignature = '';
 let lastIndex = 0;
 let ticks = 0;
+let recordingGaps = [];
 
 function status(message) { $('status').textContent = message; }
 function localTime(value) { return new Date(value).toLocaleString(); }
@@ -53,6 +54,7 @@ function trackInfo() { return catalogue.find(t => t.track_id === selectedTrack);
 function clearView() {
   revision++;
   points = [];
+  recordingGaps = [];
   cursor = null;
   lastSignature = '';
   layer.clearLayers();
@@ -62,6 +64,7 @@ function clearView() {
   $('inspect').hidden = true;
   $('more').hidden = true;
   $('page-status').textContent = '';
+  $('gap-status').textContent = '';
   status(selectedTrack ? 'Loading observations…' : 'Waiting for a recording run');
 }
 
@@ -98,13 +101,24 @@ function nearestIndex(event, indices, observations) {
   return nearest;
 }
 
+function gapDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return [hours && `${hours}h`, minutes && `${minutes}m`, (rest || (!hours && !minutes)) && `${rest}s`]
+    .filter(Boolean).join(' ');
+}
+
 function routeParts(observations) {
+  const gaps = [];
   const segments = [];
   const ends = new Set([0, observations.length - 1]);
   let current = [], previous = null;
   for (let index = 0; index < observations.length; index++) {
     const p = observations[index];
     if (previous && Date.parse(p.time) - Date.parse(previous.time) > GAP_MS) {
+      gaps.push({before: index - 1, after: index, duration: Date.parse(p.time) - Date.parse(previous.time)});
       segments.push(current);
       ends.add(index - 1);
       ends.add(index);
@@ -114,7 +128,7 @@ function routeParts(observations) {
     previous = p;
   }
   if (current.length) segments.push(current);
-  return {segments: segments.filter(segment => segment.length > 1), ends};
+  return {segments: segments.filter(segment => segment.length > 1), ends, gaps};
 }
 
 function fitObservations(observations) {
@@ -136,7 +150,11 @@ function render(fit = false) {
     status('No observations in this interval');
     return;
   }
-  const {segments: routeSegments, ends} = routeParts(points);
+  const {segments: routeSegments, ends, gaps} = routeParts(points);
+  recordingGaps = gaps;
+  $('gap-status').textContent = gaps.length
+    ? `${gaps.length} recording gap${gaps.length === 1 ? '' : 's'} over 10 minutes (movement unknown)`
+    : '';
   for (const segment of routeSegments) {
     L.polyline(segment.map(index => [points[index].lat, points[index].lon]), {
       color: '#57b9ef', weight: 3
@@ -158,6 +176,21 @@ function render(fit = false) {
       fillOpacity: 0.9, bubblingMouseEvents: false
     }).bindTooltip(pointText(p, index))
       .on('click', () => inspectPoint(index)).addTo(layer);
+  }
+
+  // Explicitly mark *both* observed endpoints. The missing interval is time,
+  // not an inferred straight-line journey between the recorded fixes.
+  for (const gap of gaps) {
+    for (const [index, side] of [[gap.before, 'Last fix before'], [gap.after, 'First fix after']]) {
+      const p = points[index];
+      const label = document.createElement('span');
+      label.textContent = `${side} ${gapDuration(gap.duration)} without observations · `
+        + `${localTime(p.time)} · Movement unknown`;
+      L.circleMarker([p.lat, p.lon], {
+        radius: 8, weight: 3, color: '#14212b', fillColor: '#f2d6ff',
+        fillOpacity: 0.95, bubblingMouseEvents: false
+      }).bindTooltip(label).on('click', () => inspectPoint(index)).addTo(layer);
+    }
   }
 
   if (mode === 'history') {
@@ -186,7 +219,10 @@ function showInspection() {
   if (mode !== 'history' || !points.length) return;
   lastIndex = Number($('position').value);
   const p = points[lastIndex];
-  $('detail').textContent = `${lastIndex + 1}/${points.length} · ${localTime(p.time)} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
+  const adjacent = recordingGaps.find(g => g.before === lastIndex || g.after === lastIndex);
+  const note = adjacent ? ` · ${adjacent.before === lastIndex ? 'Gap after' : 'Gap before'}: `
+    + `${gapDuration(adjacent.duration)} without observations; movement unknown` : '';
+  $('detail').textContent = `${lastIndex + 1}/${points.length} · ${localTime(p.time)} · ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${note}`;
   inspectedMarker = L.circleMarker([p.lat, p.lon], {
     radius: 8, weight: 2, color: '#edf2f5', fillColor: '#dc6adc', fillOpacity: 1
   }).addTo(layer);

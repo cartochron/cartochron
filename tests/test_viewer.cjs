@@ -117,6 +117,18 @@ test('gap boundaries are visible and route lines never cross a recording gap', (
   assert.match(ui.element('detail').textContent, /4\/4/);
 });
 
+test('gap markers explain time loss without inventing motion', () => {
+  const ui = viewer();
+  const layers = ui.render([point(0, 0), point(1, 1), point(2, 30), point(3, 31)]);
+  const warnings = layers.filter(layer => layer.type === 'circle' && layer.options.radius === 8
+    && layer.options.fillColor === '#f2d6ff');
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0].tooltip.textContent, /29m.*Movement unknown/);
+  assert.match(ui.element('gap-status').textContent, /1 recording gap.*movement unknown/);
+  warnings[1].events.click();
+  assert.match(ui.element('detail').textContent, /Gap before: 29m.*movement unknown/);
+});
+
 test('long histories render bounded dots, but line clicks inspect points between dots', () => {
   const ui = viewer();
   const layers = ui.render(Array.from({length: 5000}, (_, i) => point(i, i)));
