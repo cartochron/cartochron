@@ -1,6 +1,7 @@
 """The demo database is disposable, deterministic, and useful to inspect visually."""
 
 import sqlite3
+from contextlib import closing
 import stat
 import tempfile
 import unittest
@@ -39,7 +40,7 @@ class DemoTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
                 create_demo(path, 1_800_000_000_000)
             # A refused second run must not modify the existing database.
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1311)
 
 

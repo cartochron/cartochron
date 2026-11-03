@@ -7,6 +7,7 @@ No Metasploit session, network connection, or real location is required.
 """
 
 import argparse
+from contextlib import closing
 import math
 import sqlite3
 import time
@@ -50,7 +51,7 @@ def create_demo(filename, now_ms):
     store = ObservationStore(path)
     store.close()
     try:
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.executemany(
                 "INSERT INTO observations(track_id, received_ms, lat, lon) VALUES (?, ?, ?, ?)",
                 examples(now_ms),
