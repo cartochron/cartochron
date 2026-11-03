@@ -2,6 +2,9 @@
 """Small viewer for explicitly submitted GPS observations."""
 
 import argparse
+import base64
+import hmac
+import stat
 import json
 import math
 import threading
@@ -34,18 +37,21 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, handler):
+    def __init__(self, address, handler, *, authorization=None):
         super().__init__(address, handler)
         self.loopback_only = address[0] in ("127.0.0.1", "localhost")
+        self.authorization = authorization
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "GPSMapLab/1.0"
 
-    def _reply(self, status, body, content_type):
+    def _reply(self, status, body, content_type, extra_headers=()):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for name, value in extra_headers:
+            self.send_header(name, value)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -57,6 +63,15 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status, data):
         self._reply(status, json.dumps(data, separators=(",", ":")).encode(), "application/json; charset=utf-8")
 
+    def _authorized(self):
+        expected = self.server.authorization
+        if expected is None or hmac.compare_digest(self.headers.get("Authorization", ""), expected):
+            return True
+        body = b'{"error":"authentication required"}'
+        self._reply(401, body, "application/json; charset=utf-8",
+                    (("WWW-Authenticate", 'Basic realm="GPS Map", charset="UTF-8"'),))
+        return False
+
     def _valid_host(self):
         # Keep the original DNS-rebinding protection for local-only use.
         # On a network listener, the externally visible Host may be a domain
@@ -64,7 +79,9 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         if not host:
             return False
-        if not self.server.loopback_only:
+        # An authenticated listener may sit behind a TLS reverse proxy, whose
+        # public Host is deliberately different from the local bind address.
+        if not self.server.loopback_only or self.server.authorization is not None:
             return True
         port = self.server.server_port
         return host in {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -77,6 +94,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._valid_host():
             return self._json(403, {"error": "loopback Host required"})
+        if not self._authorized():
+            return
         path = urlsplit(self.path).path
         if path == "/":
             return self._reply(200, _HTML, "text/html; charset=utf-8")
@@ -94,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._valid_host() or not self._valid_origin():
             return self._json(403, {"error": "not permitted"})
+        if not self._authorized():
+            return
         if self.path != "/api/position":
             return self._json(404, {"error": "not found"})
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -128,6 +149,29 @@ class Handler(BaseHTTPRequestHandler):
         super().log_message(fmt, *args)
 
 
+def load_authorization(filename):
+    """Read one user:password line without exposing secrets in process arguments."""
+    path = Path(filename)
+    try:
+        if path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise ValueError("auth file must be private (chmod 600)")
+        with path.open("rb") as stream:
+            contents = stream.read(1025)
+    except OSError as exc:
+        raise ValueError(f"cannot read auth file: {exc}") from exc
+    if len(contents) > 1024:
+        raise ValueError("auth file exceeds 1024 bytes")
+    raw = contents.rstrip(b"\r\n")
+    username, separator, password = raw.partition(b":")
+    if not separator or not username or not password or any(c in raw for c in (b"\r", b"\n", b"\x00")):
+        raise ValueError("auth file must contain one user:password line")
+    try:
+        raw.decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError("auth credentials must be ASCII") from exc
+    return "Basic " + base64.b64encode(raw).decode("ascii")
+
+
 def port_number(value):
     try:
         port = int(value)
@@ -144,15 +188,23 @@ def main():
                         help="IPv4 listening address (default: 127.0.0.1)")
     parser.add_argument("--port", type=port_number, default=8765,
                         help="TCP listening port (default: 8765)")
+    parser.add_argument("--auth-file", metavar="FILE",
+                        help="private file containing user:password (HTTP Basic authentication)")
     args = parser.parse_args()
+    try:
+        authorization = load_authorization(args.auth_file) if args.auth_file else None
+    except ValueError as exc:
+        parser.error(str(exc))
     if not (_ROOT / "vendor/leaflet/leaflet.js").is_file() or not (_ROOT / "vendor/leaflet/leaflet.css").is_file():
         parser.error("Leaflet assets missing; run: python3 vendor_leaflet.py")
     print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
     print("Observations are held in RAM and erased when this program exits.", flush=True)
     if args.bind not in ("127.0.0.1", "localhost"):
-        print("WARNING: network access is unauthenticated; restrict access to trusted clients.", flush=True)
+        print("WARNING: HTTP traffic is not encrypted; use HTTPS or a private network.", flush=True)
+        if authorization is None:
+            print("WARNING: map and ingestion endpoints are publicly accessible without authentication.", flush=True)
     try:
-        with Server((args.bind, args.port), Handler) as server:
+        with Server((args.bind, args.port), Handler, authorization=authorization) as server:
             server.serve_forever()
     except KeyboardInterrupt:
         pass

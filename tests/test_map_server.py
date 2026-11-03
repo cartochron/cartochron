@@ -1,6 +1,8 @@
 """HTTP contracts for the map server, without requiring Leaflet or the network."""
 
 import base64
+import os
+import tempfile
 import http.client
 import json
 import threading
@@ -68,6 +70,51 @@ class MapServerTest(unittest.TestCase):
         headers = {"Host": "map.example.test", "Origin": "https://map.example.test"}
         self.assertEqual(self.position(headers)[0], 201)
         self.assertEqual(self.request("GET", "/api/points", headers=headers)[0], 200)
+
+    def test_basic_auth_protects_map_assets_points_and_ingestion(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        auth = "Basic " + base64.b64encode(b"operator:a-long-password").decode("ascii")
+        self.start_server(authorization=auth)
+        for path in ("/", "/api/points", "/vendor/leaflet/leaflet.js"):
+            status, headers, _ = self.request("GET", path)
+            self.assertEqual(status, 401)
+            self.assertIn("Basic", headers["WWW-Authenticate"])
+        self.assertEqual(self.position()[0], 401)
+        self.assertEqual(self.position({"Authorization": "Basic invalid"})[0], 401)
+        self.assertEqual(self.position({"Authorization": auth})[0], 201)
+        status, _, body = self.request("GET", "/api/points", headers={"Authorization": auth})
+        self.assertEqual(status, 200)
+        self.assertEqual(len(json.loads(body)["points"]), 1)
+        self.assertEqual(self.request("GET", "/", headers={"Authorization": auth})[0], 200)
+
+    def test_authenticated_proxy_accepts_external_host_and_rejects_foreign_origin(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.start_server(authorization="Basic YTpi")
+        headers = {"Authorization": "Basic YTpi", "Host": "map.example.test",
+                   "Origin": "https://map.example.test"}
+        self.assertEqual(self.position(headers)[0], 201)
+        self.assertEqual(self.position({**headers, "Origin": "https://evil.example"})[0], 403)
+
+    def test_private_authorization_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = os.path.join(directory, "auth")
+            with open(filename, "w", encoding="ascii") as stream:
+                stream.write("operator:a-long-password\n")
+            os.chmod(filename, 0o600)
+            expected = "Basic " + base64.b64encode(b"operator:a-long-password").decode("ascii")
+            self.assertEqual(map_server.load_authorization(filename), expected)
+            os.chmod(filename, 0o644)
+            with self.assertRaisesRegex(ValueError, "private"):
+                map_server.load_authorization(filename)
+            os.chmod(filename, 0o600)
+            with open(filename, "w", encoding="ascii") as stream:
+                stream.write("bad-file-with-no-colon\n")
+            with self.assertRaisesRegex(ValueError, "user:password"):
+                map_server.load_authorization(filename)
 
     def test_invalid_port_is_rejected(self):
         for port in ("0", "65536", "hello"):
