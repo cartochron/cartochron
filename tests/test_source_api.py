@@ -46,6 +46,7 @@ class SourceHTTPTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual({r["track_id"]: r["source_id"] for r in data["tracks"]},
                          {"r1": sid, "r2": sid})
+        self.assertEqual({r["source_label"] for r in data["tracks"]}, {"Research device"})
         status, data = self.request("GET", "/api/sources")
         self.assertEqual(status, 200)
         self.assertEqual(data["sources"][0]["label"], "Research device")

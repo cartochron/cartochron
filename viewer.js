@@ -56,6 +56,11 @@ async function getJSON(url) {
   return response.json();
 }
 function trackInfo() { return catalogue.find(t => t.track_id === selectedTrack); }
+function runLabel(record) {
+  // A source label is descriptive, not proof that a particular device produced a fix.
+  return record.source_label ? `${record.track_id} · ${record.source_label}`
+    : `${record.track_id} · unassigned`;
+}
 
 function clearView() {
   revision++;
@@ -289,7 +294,7 @@ async function refreshTracks() {
       select.disabled = true;
     } else {
       select.disabled = false;
-      for (const track of catalogue) select.add(new Option(track.track_id, track.track_id));
+      for (const track of catalogue) select.add(new Option(runLabel(track), track.track_id));
       if (selectedTrack && !catalogue.some(t => t.track_id === selectedTrack)) {
         select.add(new Option(selectedTrack + ' (not in recent list)', selectedTrack));
       }
@@ -468,7 +473,8 @@ function renderLayerPanel() {
     });
     row.appendChild(input);
     const label = document.createElement('span');
-    label.textContent = track === selectedTrack ? `${track} (focused)` : track;
+    label.textContent = (track === selectedTrack ? `${track} (focused)` : track)
+      + (record.source_label ? ` · ${record.source_label}` : ' · unassigned');
     row.appendChild(label);
     panel.appendChild(row);
   }

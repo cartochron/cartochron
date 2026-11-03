@@ -4,7 +4,8 @@ Cartochron records and displays GPS observations for authorized security
 research. It started as `msf-gps-map`, and retains its small HTTP interface
 and Metasploit integration. The standalone server can run with an in-memory
 SQLite database or preserve observations on disk. Each recording run has a
-track identifier, and the HTTP API supports bounded historical queries.
+track identifier and can optionally belong to an enrolled, persistent source;
+the HTTP API supports bounded historical queries.
 The Leaflet viewer supports selecting tracks, inspecting live positions, and
 exploring historical time intervals. Repository and server filenames remain
 unchanged.
@@ -13,8 +14,9 @@ unchanged.
 
 1. An authorized Android Meterpreter session provides coordinates to the
    `gps_streamer` post module, using `geolocate` or `wlan_geolocate`.
-2. The module posts `{"lat": ..., "lon": ..., "track_id": ...}` to the
-   server. A new random `track_id` is generated once per Metasploit job.
+2. The module posts `{"lat": ..., "lon": ..., "track_id": ...}` (and an optional
+   `source_id`) to the server. A new random `track_id` is generated once per
+   Metasploit job; a configured `source_id` can persist across jobs.
 3. `map_server.py` records observations in SQLite, in RAM by default or
    in a persistent database when `--db` is specified. The browser selects a
    run, follows its latest positions in Live mode, or reads a fixed time
@@ -117,7 +119,8 @@ Metasploit's `ConsoleLogging` option is not a replacement: it records console
 output but does not prevent console pollution.
 
 The default `ENDPOINT` is `http://127.0.0.1:8765/api/position`.
-The recording-run ID is written to the Metasploit framework log. `TRACK_ID`
+The recording-run ID and the configured source ID (if any) are written to the
+Metasploit framework log. `TRACK_ID`
 is optional; leave it empty to
 create a fresh random ID each run. Set it explicitly (1–64 ASCII letters,
 digits, `.`, `_`, or `-`, starting with a letter or digit) only when you
@@ -160,6 +163,50 @@ For backups, stop the server before copying the database file, or use SQLite's
 backup facilities while it is running. There is no retention or automatic
 pruning in persistent mode; the operator owns storage and deletion policy.
 
+## Persistent source identities
+
+A **source** identifies an operator-enrolled producer across recording jobs.
+A **run** (`track_id`) records one acquisition period. New jobs intentionally
+get new run IDs, even when they belong to the same source: Cartochron must not
+invent movement between recording runs. Labels are descriptions, not proof of
+physical identity. No MAC address, hardware serial, or Meterpreter fingerprint
+is automatically collected.
+
+With the server stopped, enroll a source in the same persistent database:
+
+```sh
+python3 sources.py --db "$HOME/.local/share/cartochron/observations.sqlite3" \
+    add 'Authorized research phone'
+# Prints an opaque ID such as src_0123456789abcdef01234567 (illustrative).
+```
+
+If the database is already open in the server, SQLite can serialize normal
+writes, but for the simplest initial workflow enroll before starting it.
+In `msfconsole`, set `SOURCE_ID` to the exact returned ID, then `run -j`.
+Keep `TRACK_ID` empty to generate a fresh run ID each time. To see enrolled
+sources again:
+
+```sh
+python3 sources.py --db "$HOME/.local/share/cartochron/observations.sqlite3" list
+```
+
+`GET /api/sources` lists enrolled sources and `GET /api/tracks` now includes
+`source_id` and `source_label` (null for unassigned runs). HTTP ingestion accepts
+optional `source_id` alongside the existing `lat`, `lon`, and `track_id` fields.
+An unknown source returns HTTP 422, and attempting to attach an existing run
+to another source returns HTTP 409. Both errors leave the observation history
+unchanged. Older producers can still omit `source_id`; their runs remain
+unassigned. Existing schema-v1 databases are upgraded to v2 automatically,
+with all historical run associations left unassigned. Make a database backup
+before upgrading; older Cartochron versions cannot read schema v2.
+
+The ID is **not an authentication token**. Access control remains the
+responsibility of the HTTP authentication / reverse proxy boundary, and every
+writer with the same privileges can claim an enrolled source ID. Use trusted
+producers and separate ingress credentials or server-side binding before
+operating a genuinely multi-tenant service. For the formal observation
+semantics and future evidence separation, see [Data contracts](docs/data-contracts.md).
+
 ## Map navigation
 
 The **Help / Manual** link in the header opens a user-oriented map-reading
@@ -170,7 +217,8 @@ belong in this README, not the in-app Help page. Help and its images use the
 same authentication requirements as the map.
 
 
-The track selector lists the 100 most recently updated runs (the catalogue
+The track selector lists the 100 most recently updated runs with their
+source labels (or “unassigned” for older and anonymous records) (the catalogue
 reports when additional runs exist). When the page opens, it initially selects
 the most recently updated run. The selection remains pinned even if another
 producer starts recording.
@@ -309,7 +357,7 @@ persistent test database. Before walking, verify:
 1. Start the server, open the map, and confirm it loads locally.
 2. In `msfconsole`, run `reload_all`, select `post/android/gather/gps_streamer`,
    set the correct `SESSION` and `INTERVAL 5`, then `run -j`. Record the
-   printed `track_id` without publishing raw GPS coordinates.
+   logged `track_id` in the Metasploit framework log, without publishing raw GPS coordinates.
 3. Verify that the server accepted observations and that this recording run
    appears under `GET /api/tracks` and in the viewer's track selector.
 4. Walk a short known route and inspect Live updates. Stop the job with
@@ -417,13 +465,14 @@ still returns the original `lat`, `lon`, and `time` fields on successful POST.
 `time` is the server's **receipt time**, not necessarily the moment when a
 GPS device obtained a fix. The database retains integer UTC milliseconds.
 
-The API has three relevant GET operations:
+The API exposes these relevant GET operations:
 
 | Endpoint | Response |
 | --- | --- |
 | `GET /api/points` | Original `{"points": [...]}` response, from the most recently updated run |
 | `GET /api/points/recent?track_id=...` | Up to 1,000 newest points for an explicitly selected run (used by Live mode) |
-| `GET /api/tracks` | Up to 100 run summaries, with counts and first/last receipt times; `truncated` reports if more exist |
+| `GET /api/tracks` | Up to 100 run summaries, including `source_id` and descriptive `source_label` when enrolled |
+| `GET /api/sources` | Up to 100 enrolled source summaries (protected by the same HTTP authentication) |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
 
 For example, with a local server containing data for `lab-run-1`:
@@ -510,6 +559,7 @@ shell command history.
 
 ```text
 map_server.py          Python HTTP server and observation API
+sources.py             Local enrollment/listing CLI for durable source IDs
 observation_store.py   SQLite storage (memory or disk)
 index.html             Leaflet map page and controls
 viewer.js              Live/history UI logic and map rendering

@@ -246,18 +246,19 @@ class ObservationStore:
         """Bounded catalogue of runs, ordered by most recent ingestion."""
         with self._lock:
             rows = self._db.execute(
-                """SELECT o.track_id, r.source_id, COUNT(*), MIN(o.received_ms), MAX(o.received_ms)
+                """SELECT o.track_id, r.source_id, s.label, COUNT(*), MIN(o.received_ms), MAX(o.received_ms)
                    FROM observations o LEFT JOIN runs r ON r.track_id = o.track_id
-                   GROUP BY o.track_id, r.source_id ORDER BY MAX(o.id) DESC
+                   LEFT JOIN sources s ON s.source_id = r.source_id
+                   GROUP BY o.track_id, r.source_id, s.label ORDER BY MAX(o.id) DESC
                    LIMIT ?""",
                 (MAX_TRACKS + 1,),
             ).fetchall()
         return {
             "tracks": [
-                {"track_id": track_id, "source_id": source_id, "count": count,
+                {"track_id": track_id, "source_id": source_id, "source_label": source_label, "count": count,
                  "first": self._timestamp(first_ms, "milliseconds"),
                  "last": self._timestamp(last_ms, "milliseconds")}
-                for track_id, source_id, count, first_ms, last_ms in rows[:MAX_TRACKS]
+                for track_id, source_id, source_label, count, first_ms, last_ms in rows[:MAX_TRACKS]
             ],
             "truncated": len(rows) > MAX_TRACKS,
         }

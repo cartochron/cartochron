@@ -275,3 +275,18 @@ test('place inspector lists only loaded fixes within radius in chronological ord
   assert.match(ui.element('place-status').textContent, /not a complete database search/);
   assert.equal(ui.exec('placeLayer.layers.length'), 1);
 });
+
+test('source association is visible as text and never inserted as HTML', () => {
+  const ui = viewer();
+  const hostile = '<img src=x onerror=alert(1)>';
+  ui.context.fixtureCatalogue = [
+    {track_id: 'run-1', source_id: 'src_' + 'a'.repeat(24), source_label: hostile},
+    {track_id: 'old-run', source_id: null, source_label: null},
+  ];
+  ui.exec('catalogue=fixtureCatalogue; selectedTrack="run-1"; renderLayerPanel()');
+  const rows = ui.element('layers-list').children;
+  assert.match(rows[0].children[1].textContent, /run-1/);
+  assert.ok(rows[0].children[1].textContent.includes(hostile));
+  assert.equal(rows[0].children[1].innerHTML, undefined);
+  assert.match(rows[1].children[1].textContent, /unassigned/);
+});
