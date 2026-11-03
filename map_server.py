@@ -9,6 +9,7 @@ import json
 import math
 import re
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +19,7 @@ from observation_store import (MAX_RECENT_POINTS, ObservationStore, SourceConfli
                                UnknownSource, valid_source_id, valid_track_id)
 
 MAX_BODY = 4096
+MAX_WORKERS = 32  # Cap idle or stalled HTTP clients as well as active requests.
 _ROOT = Path(__file__).resolve().parent
 _HTML = (_ROOT / "index.html").read_bytes()
 _VIEWER_JS = (_ROOT / "viewer.js").read_bytes()
@@ -100,7 +102,11 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, handler, *, authorization=None, database=None):
+    def __init__(self, address, handler, *, authorization=None, database=None,
+                 max_workers=MAX_WORKERS):
+        if type(max_workers) is not int or not 1 <= max_workers <= 256:
+            raise ValueError("max_workers must be 1..256")
+        self._worker_slots = threading.BoundedSemaphore(max_workers)
         self.store = ObservationStore(database)
         try:
             super().__init__(address, handler)
@@ -109,6 +115,30 @@ class Server(ThreadingHTTPServer):
             raise
         self.loopback_only = address[0] in ("127.0.0.1", "localhost")
         self.authorization = authorization
+
+    def process_request(self, request, client_address):
+        # ThreadingHTTPServer otherwise starts a new thread for every accepted
+        # socket, including clients stalled before their first HTTP header.
+        if not self._worker_slots.acquire(blocking=False):
+            try:
+                request.settimeout(0.1)  # Never stall the accept loop.
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\n"
+                                b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
 
     def server_close(self):
         super().server_close()

@@ -564,8 +564,10 @@ shell command history.
   tile provider.
 - The built-in receiver limits a request-body wait to 10 seconds and rejects
   incomplete payloads; this is not a concurrency or rate limit.
-- A public Python `ThreadingHTTPServer` is not a hardened production HTTP
-  frontend. Use a reverse proxy, firewall, and sensible connection limits.
+- The HTTP server permits up to 32 concurrent request workers and returns
+  HTTP 503 when those slots are occupied. A stalled client can still hold one
+  slot until its timeout. Use a reverse proxy and firewall for network access;
+  Python's `ThreadingHTTPServer` is not a hardened public HTTP frontend.
 
 ## Project files
 
