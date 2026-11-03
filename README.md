@@ -77,8 +77,48 @@ commands use the same session, so avoid overlapping intensive operations when
 investigating inconsistent location polls. You do not need another terminal,
 thread, daemon, or custom job manager.
 
+### Streamer logging
+
+Background jobs share the Metasploit console output, including the interactive
+Meterpreter prompt. Cartochron therefore writes operational events to
+**Metasploit's existing framework logger**, instead of calling `print_good`
+or `print_error` on every poll. Only one-off invalid-configuration errors are
+reported to the console.
+
+The default log is `~/.msf4/logs/framework.log`. In another terminal, watch
+just the Cartochron messages:
+
+```sh
+tail -F ~/.msf4/logs/framework.log | grep --line-buffered '\[Cartochron\]'
+```
+
+The framework determines the log location. You can inspect the exact path in
+`msfconsole` with `irb` and `Msf::Config.log_directory`.
+
+Logged at the ordinary level: job startup (including the run ID), first
+successful ingestion, changes between healthy / unavailable / rejected /
+error states, a summary every 60 seconds, and a final summary when the job
+stops. Repeated identical failures are not logged every five seconds.
+The summary gives counts of accepted, rejected, unavailable, and failed
+polls. Per-observation acknowledgments are available in the framework's
+debug log level when explicitly enabled:
+
+```text
+msf6 > setg LogLevel 2    # More detailed framework logging, including per-fix confirmations
+msf6 > setg LogLevel 0    # Return to ordinary logging
+```
+
+`LogLevel` affects the entire framework, not only Cartochron. Leave it at the
+normal level for long recordings. These logs contain **no GPS coordinates or
+HTTP credentials**; use Cartochron's SQLite history to inspect coordinates.
+The local framework log still contains run IDs and operational metadata, so
+protect it and arrange log retention as appropriate for your environment.
+Metasploit's `ConsoleLogging` option is not a replacement: it records console
+output but does not prevent console pollution.
+
 The default `ENDPOINT` is `http://127.0.0.1:8765/api/position`.
-The module prints the recording-run ID when starting. `TRACK_ID` is optional; leave it empty to
+The recording-run ID is written to the Metasploit framework log. `TRACK_ID`
+is optional; leave it empty to
 create a fresh random ID each run. Set it explicitly (1–64 ASCII letters,
 digits, `.`, `_`, or `-`, starting with a letter or digit) only when you
 intentionally want multiple jobs to append to the same recording run.
