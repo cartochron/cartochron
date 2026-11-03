@@ -161,14 +161,24 @@ colors, and both sides of recording gaps remain visible. Long tracks display
 fewer dots to avoid overloading the map; clicking the line still locates fixes
 between them. Live mode opens an inspection popup on click.
 
-In **History** mode, the optional **Overlay run** selector draws one other
-recording run in amber within the same time interval. Its nodes and lines are
-inspectable independently; the main slider still controls the primary run.
-For the demo, select `demo-city-loop`, enter History mode, then overlay
-`demo-crossing`. Their routes overlap geographically, but the observations
-were recorded at different times: **a crossing is not proof of a meeting**.
-Overlays are bounded to 5,000 points and say when the result is partial.
-Live mode still follows only the selected recording run.
+In **History** mode, **Overlay run** draws one other recording run in amber.
+**Overlay time** defaults to **Entire run**, so a run recorded yesterday can
+be compared geographically with a run recorded today. Choose **Same interval**
+to show only overlay observations in the primary run's selected `[from, to)`
+window. The viewer tells you if none fall in that interval; this is not a
+fetch failure. On overlay selection, the map fits both visible routes so a
+run in another city is not hidden outside the current viewport. The map may
+zoom out substantially if the runs are far apart.
+
+The overlay's nodes and lines are independently inspectable; the main slider
+still controls only the primary run. For the demo, select `demo-city-loop`,
+enter History mode, and overlay `demo-crossing`. Their routes cross
+geographically but the relevant observations were recorded at different
+times: **a crossing is not proof of a meeting**. Try selecting `demo-replay`
+(after synthetic replay) and overlaying `demo-long-history`: **Entire run**
+shows both, whereas **Same interval** shows zero overlay fixes for a recent
+narrow replay window. Overlays are bounded to 5,000 points and identify partial
+results. Live mode still follows only the selected recording run.
 
 `make check` tests the database fixture and API automatically. The demo is for
 manual browser inspection: select a track, change the time range, move the
