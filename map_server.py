@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small, localhost-only viewer for explicitly submitted GPS observations."""
+"""Small viewer for explicitly submitted GPS observations."""
 
 import argparse
 import json
@@ -34,6 +34,10 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def __init__(self, address, handler):
+        super().__init__(address, handler)
+        self.loopback_only = address[0] in ("127.0.0.1", "localhost")
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "GPSMapLab/1.0"
@@ -54,14 +58,21 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(status, json.dumps(data, separators=(",", ":")).encode(), "application/json; charset=utf-8")
 
     def _valid_host(self):
-        # Prevent virtual-host and DNS rebinding requests. Browser clients use
-        # a numeric loopback hostname; curl may use localhost.
+        # Keep the original DNS-rebinding protection for local-only use.
+        # On a network listener, the externally visible Host may be a domain
+        # or a reverse proxy rather than the bound interface address.
         host = self.headers.get("Host", "")
-        return host in {"127.0.0.1:8765", "localhost:8765"}
+        if not host:
+            return False
+        if not self.server.loopback_only:
+            return True
+        port = self.server.server_port
+        return host in {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     def _valid_origin(self):
         origin = self.headers.get("Origin")
-        return origin is None or origin in {"http://127.0.0.1:8765", "http://localhost:8765"}
+        host = self.headers.get("Host", "")
+        return origin is None or origin in {f"http://{host}", f"https://{host}"}
 
     def do_GET(self):
         if not self._valid_host():
@@ -117,15 +128,32 @@ class Handler(BaseHTTPRequestHandler):
         super().log_message(fmt, *args)
 
 
+def port_number(value):
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("port must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+    return port
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
+    parser.add_argument("--bind", default="127.0.0.1", metavar="ADDRESS",
+                        help="IPv4 listening address (default: 127.0.0.1)")
+    parser.add_argument("--port", type=port_number, default=8765,
+                        help="TCP listening port (default: 8765)")
+    args = parser.parse_args()
     if not (_ROOT / "vendor/leaflet/leaflet.js").is_file() or not (_ROOT / "vendor/leaflet/leaflet.css").is_file():
         parser.error("Leaflet assets missing; run: python3 vendor_leaflet.py")
-    print("Local GPS map: http://127.0.0.1:8765", flush=True)
+    print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
     print("Observations are held in RAM and erased when this program exits.", flush=True)
+    if args.bind not in ("127.0.0.1", "localhost"):
+        print("WARNING: network access is unauthenticated; restrict access to trusted clients.", flush=True)
     try:
-        Server(("127.0.0.1", 8765), Handler).serve_forever()
+        with Server((args.bind, args.port), Handler) as server:
+            server.serve_forever()
     except KeyboardInterrupt:
         pass
 
