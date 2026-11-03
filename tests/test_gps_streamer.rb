@@ -45,6 +45,37 @@ class GPSStreamerTest < Minitest::Test
     assert_equal({ 'lat' => 47.0, 'lon' => 28.0 }, JSON.parse(@http.request_sent.body))
   end
 
+  def test_track_id_is_transmitted_with_observation
+    Net::HTTP.stub(:new, @http) do
+      @module.submit_position(URI('http://127.0.0.1:8765/api/position'),
+                              47.0, 28.0, '', '', 'lab-run-1')
+    end
+    assert_equal({ 'lat' => 47.0, 'lon' => 28.0, 'track_id' => 'lab-run-1' },
+                 JSON.parse(@http.request_sent.body))
+  end
+
+  def test_job_generates_one_track_id_for_all_polls
+    geo = Struct.new(:geolocate).new([{ 'lat' => 47.0, 'long' => 28.0 }])
+    client = Struct.new(:android).new(geo)
+    settings = { 'INTERVAL' => 1, 'ENDPOINT' => 'http://127.0.0.1:8765/api/position',
+                 'API_KEY' => '', 'MAP_USER' => '', 'MAP_PASSWORD' => '', 'TRACK_ID' => '' }
+    sent = []
+    @module.define_singleton_method(:datastore) { settings }
+    @module.define_singleton_method(:client) { client }
+    @module.define_singleton_method(:print_status) { |_message| }
+    @module.define_singleton_method(:print_good) { |_message| }
+    @module.define_singleton_method(:print_error) { |message| raise message }
+    @module.define_singleton_method(:submit_position) do |_uri, _lat, _lon, _user, _password, track|
+      sent << track
+      Net::HTTPCreated.new('1.1', '201', 'Created')
+    end
+    @module.define_singleton_method(:sleep) { |_seconds| raise Interrupt if sent.length >= 2 }
+    assert_raises(Interrupt) { @module.run }
+    assert_equal 2, sent.length
+    assert_equal sent.first, sent.last
+    assert_match(/\A[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\z/, sent.first)
+  end
+
   def test_http_without_auth_is_backward_compatible
     Net::HTTP.stub(:new, @http) do
       @module.submit_position(URI('http://127.0.0.1:8765/api/position'),
