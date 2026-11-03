@@ -9,6 +9,7 @@ import json
 import math
 import re
 import sqlite3
+import signal
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -99,7 +100,8 @@ def parse_history_query(query):
 
 
 class Server(ThreadingHTTPServer):
-    daemon_threads = True
+    # Drain in-flight requests before closing their shared SQLite connection.
+    daemon_threads = False
     allow_reuse_address = True
 
     def __init__(self, address, handler, *, authorization=None, database=None,
@@ -376,7 +378,16 @@ def main():
                 print("WARNING: HTTP traffic is not encrypted; use HTTPS or a private network.", flush=True)
                 if authorization is None:
                     print("WARNING: map and ingestion endpoints are publicly accessible without authentication.", flush=True)
-            server.serve_forever()
+            # Docker sends SIGTERM on stop. shutdown() must run on another
+            # thread so serve_forever() can return and close SQLite cleanly.
+            def stop_server(_signum, _frame):
+                threading.Thread(target=server.shutdown, daemon=True).start()
+
+            previous_handler = signal.signal(signal.SIGTERM, stop_server)
+            try:
+                server.serve_forever()
+            finally:
+                signal.signal(signal.SIGTERM, previous_handler)
     except KeyboardInterrupt:
         pass
     except (OSError, sqlite3.Error, ValueError) as exc:
