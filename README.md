@@ -31,7 +31,8 @@ uses only the Python standard library.
 ```sh
 make                  # Fetch and integrity-check local Leaflet 1.9.4 assets
 make install-local    # Install the module into ~/.msf4/modules/
-make check            # Run tests; does not require Metasploit or Leaflet assets
+make check            # Run Python/Ruby tests and JS tests if Node.js is installed
+make check-viewer     # Require Node.js; run the browser-logic tests
 ```
 
 ## Local use (default)
@@ -151,11 +152,80 @@ overwrite an existing file; choose a fresh path if you want to regenerate it.
 It writes directly to a new SQLite database rather than pretending to be a
 real device. Never run the demo against an existing observation database.
 
+The map now has small inspection nodes along the displayed route. Hover over a
+node to see the recording run, receipt time, and coordinates. Click a node or
+a blue route segment to select the nearest **recorded** fix; in History mode,
+this also synchronizes the inspection slider. Start/end fixes have distinct
+colors, and both sides of recording gaps remain visible. Long tracks display
+fewer dots to avoid overloading the map; clicking the line still locates fixes
+between them. Live mode opens an inspection popup on click.
+
+The viewer displays **one recording run at a time**. Spatial intersections
+between separate tracks and coincident locations at different times must not
+be interpreted as proof of a meeting. Multi-run overlays are not implemented.
+
 `make check` tests the database fixture and API automatically. The demo is for
 manual browser inspection: select a track, change the time range, move the
 inspection slider, and verify the path visually. It requires no HTTP posting,
 credentials, real GPS hardware, or Metasploit session. To dispose of it, stop
 the server and delete only the demo SQLite file.
+
+## Synthetic live-stream rehearsal
+
+The fixture above tests History mode, but doesn't exercise HTTP ingestion or
+Live mode. For that, use two **separate** disposable databases. In three
+terminals:
+
+```sh
+# Terminal 1 — generate a source fixture once
+python3 demo.py --db /tmp/cartochron-source.sqlite3
+
+# Terminal 2 — start an empty, local test receiver
+python3 map_server.py --db /tmp/cartochron-live.sqlite3
+
+# Terminal 3 — POST a sample every second using the real ingestion API
+python3 replay.py --db /tmp/cartochron-source.sqlite3 \
+    --track demo-city-loop --as-track demo-replay --count 30 --interval 1
+```
+
+Open <http://127.0.0.1:8765/> and select `demo-replay` in **Live** mode.
+The route grows while replay runs; History mode can inspect received points
+and their actual server receipt times. Stop replay with Ctrl-C and verify that
+the last point stays visible. Restart the server using the same receiver
+database and verify the observations remain. Use different paths, or remove
+only your disposable files, for subsequent runs: `demo.py` refuses to overwrite
+an existing fixture and `map_server.py` retains existing database contents.
+
+`replay.py` deliberately accepts **only an unauthenticated loopback HTTP
+endpoint**, defaults to `127.0.0.1:8765`, and never modifies the source
+fixture. It is a manual test driver, not a replacement for an authorized
+GPS producer. Use the actual Metasploit adapter to test authentication and
+remote transport; do not send synthetic fixes to a production history.
+
+## First live-device field test
+
+Use a device you own or are explicitly authorized to test, and a separate
+persistent test database. Before walking, verify:
+
+1. Start the server, open the map, and confirm it loads locally.
+2. In `msfconsole`, run `reload_all`, select `post/android/gather/gps_streamer`,
+   set the correct `SESSION` and `INTERVAL 5`, then `run -j`. Record the
+   printed `track_id` without publishing raw GPS coordinates.
+3. Verify that the server accepted observations and that this recording run
+   appears under `GET /api/tracks` and in the viewer's track selector.
+4. Walk a short known route and inspect Live updates. Stop the job with
+   `jobs -k <JobID>`; verify History has a fixed, inspectable route.
+5. Restart the map server with the same `--db` path and confirm the history
+   survives. Test a new job and confirm it does not join the earlier route.
+6. If using a VPS, test the HTTPS/authentication boundary separately. Check
+   failed credentials are rejected and never disable TLS verification to
+   make a test succeed.
+
+Observe actual receipt timestamps, poll intervals, missing fixes, connection
+failures, and GPS acquisition failures. The server records **receipt time**,
+not independently verified satellite-fix time. Long observation gaps are not
+proof of continuous movement. Never place real location data or passwords in
+public bug reports or test fixtures.
 
 ## VPS / network use
 
@@ -345,6 +415,7 @@ observation_store.py   SQLite storage (memory or disk)
 index.html             Leaflet map page and controls
 viewer.js              Live/history UI logic and map rendering
 demo.py                Generate isolated synthetic browser fixtures
+replay.py              Feed demo observations into a local HTTP listener
 gps_streamer.rb         Metasploit Android post module
 vendor_leaflet.py      Downloads and verifies pinned Leaflet assets
 tests/                 Python HTTP and Ruby transport tests
