@@ -13,6 +13,10 @@ check:
 check-viewer:
 	node --test tests/test_viewer.cjs
 
+# Real Docker integration; explicit because it builds an image and starts containers.
+check-deploy:
+	python3 -m unittest discover -s tests -p 'deployment_check.py' -v
+
 install-local:
 	install -m 0644 gps_streamer.rb \
 		-D "$(MSF_DIR)/post/android/gather/gps_streamer.rb"
@@ -23,4 +27,4 @@ uninstall-local:
 clean:
 	rm -rf vendor
 
-.PHONY: all vendor check check-viewer install-local uninstall-local clean
+.PHONY: all vendor check check-viewer check-deploy install-local uninstall-local clean
