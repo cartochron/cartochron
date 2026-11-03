@@ -168,6 +168,19 @@ class MapServerTest(unittest.TestCase):
             self.assertEqual(self.request("GET", path,
                              headers={"Authorization": "Basic YTpi"})[0], 200)
 
+    def test_help_teaches_map_use_without_development_instructions(self):
+        status, _, body = self.request("GET", "/help")
+        self.assertEqual(status, 200)
+        page = body.decode("utf-8")
+        for topic in ("Live", "History", "Inspect point", "Shared time",
+                      "Inspect place", "Comparison time", "missing time"):
+            with self.subTest(topic=topic):
+                self.assertIn(topic, page)
+        for command in ("make check", "python3 demo.py", "msfconsole", "run -j"):
+            self.assertNotIn(command, page)
+        for illustration in ("/docs/images/tracks.png", "/docs/images/gaps.png"):
+            self.assertIn(illustration, page)
+
     def test_recent_track_query_stays_on_selected_run(self):
         for lat, track in ((47, "A"), (48, "B"), (49, "A"), (50, "B")):
             payload = json.dumps({"lat": lat, "lon": 28, "track_id": track}).encode()

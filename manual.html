@@ -3,63 +3,114 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cartochron | Field manual</title>
+  <title>Cartochron | Understand the map</title>
   <style>
     :root {color-scheme:dark;font:15px/1.65 system-ui,sans-serif;background:#101820;color:#eaf2f7}
     * {box-sizing:border-box}
-    body {max-width:950px;margin:0 auto;padding:24px 22px 64px}
-    a {color:#7fd0ff} a:focus-visible {outline:2px solid #7fd0ff;outline-offset:3px}
-    h1,h2,h3 {line-height:1.25;color:#fff} h1 {font-size:2rem} h2 {margin-top:36px}
+    body {max-width:960px;margin:0 auto;padding:24px 22px 64px}
+    a {color:#91d8ff} a:focus-visible {outline:2px solid #91d8ff;outline-offset:3px}
+    h1,h2,h3 {line-height:1.3;color:#fff} h1 {font-size:2rem} h2 {margin-top:36px}
     p,li {max-width:85ch} .lede {color:#b9d0df;font-size:1.1rem}
     .intro {border-bottom:1px solid #3a5363;padding-bottom:16px}
-    .panel {border:1px solid #39576a;background:#162735;border-radius:9px;padding:16px;margin:20px 0}
-    .steps {display:flex;gap:12px;flex-wrap:wrap;list-style:none;padding:0}
-    .steps a {border:1px solid #59788a;border-radius:5px;padding:7px 12px;text-decoration:none}
-    figure {margin:24px 0} figure img {display:block;width:100%;height:auto;border:1px solid #496577;border-radius:6px}
-    figcaption,.note {font-size:.9rem;color:#b7cdda}
-    kbd,code {font: .92em ui-monospace,SFMono-Regular,Consolas,monospace;background:#253c4b;border-radius:3px;padding:2px 5px}
-    pre {overflow:auto;padding:12px;background:#1a2e3b;border-radius:6px}
-    footer {border-top:1px solid #3a5363;padding-top:14px;color:#b7cdda}
+    nav ul {display:flex;gap:9px;flex-wrap:wrap;list-style:none;padding:0}
+    nav a {display:block;border:1px solid #59788a;border-radius:5px;padding:6px 11px;text-decoration:none}
+    .panel {border:1px solid #39576a;background:#162735;border-radius:9px;padding:14px 17px;margin:20px 0}
+    .panel > :first-child {margin-top:0} .panel > :last-child {margin-bottom:0}
+    .muted,figcaption {color:#b7cdda;font-size:.92rem}
+    figure {margin:22px 0} figure img {display:block;width:100%;height:auto;border:1px solid #496577;border-radius:6px}
+    figcaption {margin-top:7px}
+    kbd {font: .92em ui-monospace,SFMono-Regular,Consolas,monospace;background:#253c4b;border-radius:3px;padding:2px 5px}
+    .legend {display:flex;flex-wrap:wrap;gap:16px;list-style:none;padding:0}
+    .key {display:inline-block;width:24px;height:5px;vertical-align:middle;margin-right:7px;border-radius:3px}
+    .key.main {background:#57b9ef} .key.compare {background:#8724d5;border:1px solid #0a1520}
+    .key.selected {width:12px;height:12px;border-radius:50%;background:#dc6adc;border:2px solid #edf2f5}
+    .key.gap {width:13px;height:13px;border-radius:50%;background:#f2d6ff;border:3px solid #14212b}
+    .steps li {margin-bottom:9px}
+    footer {border-top:1px solid #3a5363;padding-top:14px;color:#b7cdda;margin-top:36px}
     @media(max-width:600px) {body {padding:16px 12px} h1 {font-size:1.6rem}}
   </style>
 </head>
 <body>
   <div class="intro">
-    <p><a href="/">← Return to Cartochron map</a></p>
-    <h1>Cartochron field manual</h1>
-    <p class="lede">A practical guide to recording runs, interpreting gaps, comparing routes in space and time, and inspecting observed positions.</p>
-    <nav aria-label="Manual contents"><ul class="steps">
-      <li><a href="#runs">Tracks</a></li><li><a href="#gaps">Gaps</a></li>
-      <li><a href="#timeline">Shared time</a></li><li><a href="#place">Places</a></li>
-      <li><a href="#field">Field checks</a></li>
+    <p><a href="/">← Back to the map</a></p>
+    <h1>Understand the Cartochron map</h1>
+    <p class="lede">A guide to what you see, which controls to use, and what the observations can—and cannot—tell you.</p>
+    <nav aria-label="Help topics"><ul>
+      <li><a href="#start">Start here</a></li>
+      <li><a href="#live-history">Live &amp; History</a></li>
+      <li><a href="#points">Points &amp; gaps</a></li>
+      <li><a href="#compare">Compare tracks</a></li>
+      <li><a href="#time">Shared time</a></li>
+      <li><a href="#place">Inspect a place</a></li>
+      <li><a href="#questions">Common questions</a></li>
     </ul></nav>
   </div>
-  <div class="panel"><strong>What the map can tell you.</strong> A line connects recorded fixes within the same recording run; it is not proof of movement along every point of the line. Time means <em>server receipt time</em>, not necessarily the GPS fix acquisition time. A geographic crossing is not evidence of a meeting, and an absent fix does not prove an absence.</div>
-  <h2 id="runs">1. Choose and compare recording runs</h2>
-  <p>Choose a focused run in <strong>Track</strong>, then switch to <strong>History</strong>. Use <strong>Tracks</strong> to show up to three additional runs (four total). The focused run stays blue, while comparisons use outlined violet, teal, and crimson routes. Hover or click a route node to inspect the recorded timestamp and coordinates.</p>
-  <p><strong>Entire runs (spatial)</strong> displays each comparison run across its own loaded history; <strong>Same interval</strong> applies the focused run's selected <strong>From</strong>/<strong>To</strong> time window to every comparison. The displayed data is paginated; inspect the <strong>Load more</strong> and partial-results messages before drawing conclusions.</p>
-  <figure><img src="/docs/images/tracks.png" alt="Synthetic city-loop and crossing runs shown with separate colors and controls for choosing visible tracks."><figcaption>Figure 1. (1) Tracks opens the visibility selector; (2) each checked run is drawn separately; (3) Shared time highlights only recent recorded fixes. Synthetic Prague example, captured offline without map tiles.</figcaption></figure>
-  <h2 id="gaps">2. Recognize recording gaps</h2>
-  <p>Cartochron splits a drawn route when consecutive observations are more than <strong>10 minutes</strong> apart. Pale gap-end rings mark the last fix before and first fix after missing data. Click either ring or move <strong>Inspect point</strong> to one of its endpoints to read the duration.</p>
-  <p>In the demo, <code>demo-city-loop</code> includes a deliberate <strong>21 minute 30 second</strong> interval without observations. The gap is about time; it does not establish that the source stopped moving. Shorter missing intervals are not flagged by this fixed display rule.</p>
-  <figure><img src="/docs/images/gaps.png" alt="Synthetic city-loop showing a route discontinuity and an explanatory gap marker."><figcaption>Figure 2. (1) Gap count and movement-unknown warning; (2) the inspected endpoint shows the 21m 30s missing interval. Pale rings mark both endpoints; no connecting movement is invented.</figcaption></figure>
-  <h2 id="timeline">3. Inspect several runs at the same time</h2>
-  <p>In History, adjust <strong>Shared time</strong> along the bottom. For each visible run, the map highlights the most recent actual fix at or before the cursor <em>only if it is at most five minutes old</em>. Older or absent observations show as <strong>no recent fix</strong>. This is not interpolation or location prediction.</p>
-  <p>The shared cursor spans the observations currently loaded in the browser, including comparisons. If a run is paginated or capped, the cursor does not represent its entire database history. For closer investigation, choose a narrower interval and load the necessary pages.</p>
-  <h2 id="place">4. Inspect a selected place</h2>
-  <p>Open <strong>Inspect place</strong> in History, select a 50, 100, or 250 metre radius, then click a location on the map. The browser lists the loaded observations inside the circle in chronological order, with their run IDs and distances. Up to 40 results are listed.</p>
-  <p>This is a <strong>local inspection of already loaded observations</strong>, not a database-wide search. If a track has no observations near the selected location, that says nothing about unrecorded movement or earlier pages you have not loaded. Distance is computed from reported coordinates without GPS accuracy metadata.</p>
-  <h2 id="field">5. Reproducible manual field checks</h2>
-  <p>Start with synthetic data, not a real person's location. Use separate files for the fixture and the receiver; never overwrite an existing observation database.</p>
-  <pre><code>python3 demo.py --db /tmp/cartochron-source.sqlite3
-python3 map_server.py --db /tmp/cartochron-source.sqlite3</code></pre>
-  <p>Select <code>demo-city-loop</code> for gaps and <code>demo-crossing</code> for route comparison. Select <code>demo-long-history</code> for pagination, and <code>demo-single-point</code> for a run with no drawable line.</p>
-  <p>For a live ingestion rehearsal, stop the first server, then run:</p>
-  <pre><code>python3 map_server.py --db /tmp/cartochron-receiver.sqlite3
-# In a different terminal:
-python3 replay.py --db /tmp/cartochron-source.sqlite3 --count 30 --interval 1</code></pre>
-  <p>In <strong>Live</strong>, choose <code>demo-replay</code> and check that new points appear. Then switch to <strong>History</strong> to verify that those observations are still queryable. Run <code>make check</code> for Python, Ruby, and optional Node.js regression tests.</p>
-  <div class="panel"><strong>Privacy and operation.</strong> Location histories are sensitive. The default memory-only server discards observations on exit. Persistent mode uses a private SQLite file. Exposing a network listener requires appropriate authentication and an encrypted transport (TLS reverse proxy or trusted VPN). Operate only with authorization and a defined retention policy.</div>
-  <footer>Cartochron · Field manual for the current observation viewer · Illustrations use synthetic observations only.</footer>
+
+  <h2 id="start">Start here: what am I looking at?</h2>
+  <p>A <strong>fix</strong> is one recorded location observation (latitude, longitude, and time). A <strong>track</strong> groups fixes from one recording run. Each track has an ID. Different IDs do not necessarily mean different people or devices.</p>
+  <p>The map joins nearby-in-time fixes into visible route segments. A line is a convenient way to read a sequence; it <strong>does not show every step taken</strong> between the recorded positions.</p>
+  <ul class="legend" aria-label="Map symbol legend">
+    <li><span class="key main"></span>Focused track</li>
+    <li><span class="key compare"></span>Comparison track</li>
+    <li><span class="key selected"></span>Selected fix</li>
+    <li><span class="key gap"></span>Recording-gap endpoint</li>
+  </ul>
+  <div class="panel"><strong>What does the time mean?</strong> The displayed time is when Cartochron's server <em>received</em> the observation, shown in your browser's local time zone. It may differ from the moment the GPS fix was obtained. The current records do not include measured GPS accuracy.</div>
+
+  <h2 id="live-history">1. Follow a track or look into the past</h2>
+  <ol class="steps">
+    <li>Choose a recording ID from <strong>Track</strong> at the top right.</li>
+    <li>Choose <strong>Live</strong> to follow newly received fixes for that run. The view updates automatically and shows up to 1,000 recent fixes. A timestamp tells you when the latest fix was received, <em>not</em> that the source is still there.</li>
+    <li>Choose <strong>History</strong> to inspect a fixed period without the view changing as new observations arrive.</li>
+    <li>Adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Dates entered here are in your local time zone.</li>
+  </ol>
+  <p>The status text tells you how many fixes are shown. If you see <strong>Load more</strong>, additional observations are available; if you see <strong>interval complete</strong>, all observations in the requested interval have been loaded for the focused track. The viewer limits each displayed run to 5,000 fixes; narrow the interval when a result is marked partial.</p>
+  <p><strong>Why did the map zoom very far out?</strong> It fits the coordinates returned for the selected run. A faraway or inaccurate fix may enlarge the bounds; use the map zoom controls and inspect the reported coordinates before interpreting it.</p>
+
+  <h2 id="points">2. Inspect individual points and missing time</h2>
+  <p>In History, hover a small dot to see a fix's timestamp and coordinates. Click a dot or the route line to select a recorded point; the <strong>Inspect point</strong> slider moves with it. You can also move that slider yourself. The highlighted magenta point is your current selection.</p>
+  <p>When consecutive fixes are more than <strong>10 minutes</strong> apart, Cartochron splits the line and puts a pale ring at each side of the gap. Select either ring to see the gap duration. The gap means <strong>no observations were recorded during that interval</strong>—not that the source stayed still or disappeared.</p>
+  <figure>
+    <img src="/docs/images/gaps.png" alt="History screenshot of the blue city-loop with two gap rings; numbered callouts identify the gap warning and selected-fix details.">
+    <figcaption>Figure 1. Synthetic city-loop: (1) the gap warning under the map; (2) selecting a gap endpoint shows the missing duration. These annotated screenshots use an offline neutral map background, not real GPS data.</figcaption>
+  </figure>
+
+  <h2 id="compare">3. Put several tracks on the map</h2>
+  <ol class="steps">
+    <li>In <strong>History</strong>, pick the focused track using <strong>Track</strong>.</li>
+    <li>Open <strong>Tracks</strong> and check up to three additional runs. The focused run stays blue; the others get contrasting outlined colors.</li>
+    <li>For <strong>Comparison time</strong>, choose <strong>Entire runs (spatial)</strong> to see each run's loaded history even if they occurred at different times. Choose <strong>Same interval</strong> to limit the other runs to the focused run's From/To window.</li>
+    <li>Click a colored dot or line to read the time and coordinates of a comparison fix.</li>
+  </ol>
+  <figure>
+    <img src="/docs/images/tracks.png" alt="History screenshot comparing the blue city-loop with a violet crossing track; numbered callouts identify the Tracks button, selected comparison and Shared time result.">
+    <figcaption>Figure 2. Synthetic crossing: (1) open Tracks; (2) the checked comparison run appears in violet; (3) Shared time reports whether the selected instant has a recent fix.</figcaption>
+  </figure>
+  <div class="panel"><strong>A crossing is not a meeting.</strong> Two paths can intersect geographically while their observations were recorded hours apart. Even nearby fixes at nearly the same time do not establish identity, contact, or intent.</div>
+
+  <h2 id="time">4. Ask: what was recorded at the same time?</h2>
+  <p>In History, move <strong>Shared time</strong> at the bottom. It uses one time cursor across the <em>currently loaded</em> visible tracks. For each run, Cartochron highlights its latest actual fix at or before that time <strong>only if the fix is no more than five minutes old</strong>.</p>
+  <p><strong>No recent fix</strong> means the viewer has no qualifying recorded fix near that instant. It does not mean the source was absent from the place. The cursor does not estimate movement between observations, and it cannot see pages that have not been loaded.</p>
+
+  <h2 id="place">5. Ask: what was observed near this location?</h2>
+  <ol class="steps">
+    <li>In History, open <strong>Inspect place</strong>.</li>
+    <li>Choose a radius of <strong>50 m</strong>, <strong>100 m</strong>, or <strong>250 m</strong>.</li>
+    <li>Click the location on the map. A circle shows the selected area.</li>
+    <li>Read the observations from visible, loaded runs in chronological order. Each result contains its time, track ID, and approximate distance from the selected location.</li>
+  </ol>
+  <p>The list displays at most the first 40 matching fixes. This is <strong>not a search of the entire saved history</strong>: missing fixes, unloaded pages, and hidden tracks are not included. Distances are calculated from recorded coordinates without accuracy information.</p>
+
+  <h2 id="questions">6. Common questions</h2>
+  <h3>Why is my comparison track missing?</h3>
+  <p>Open <strong>Tracks</strong> and verify that it is checked. If <strong>Comparison time</strong> says <strong>Same interval</strong>, its observations might fall outside the focused run's time window. Try <strong>Entire runs (spatial)</strong> to compare locations across different times.</p>
+  <h3>Why is there no line, or why does the line stop?</h3>
+  <p>A single fix has no route line. A line can stop at a recording gap of more than ten minutes, or at the edge of the selected interval or loaded pages. Look at the gap warning and the result status.</p>
+  <h3>Can I conclude that two sources met?</h3>
+  <p>No. You can inspect geographic proximity and compare receipt times, but Cartochron does not prove a meeting, a handoff, or continuous presence between observations. Treat those as hypotheses requiring independent evidence.</p>
+  <h3>Why do the screenshots look different from my map?</h3>
+  <p>The illustrated controls come from synthetic example tracks with an offline neutral background. Your browser normally shows OpenStreetMap tiles, which require network access. The map data underneath the routes may therefore look different.</p>
+  <div class="panel"><strong>Respect location privacy.</strong> Use Cartochron only with authorization. Recorded histories may disclose sensitive movements and must be protected and retained only as necessary. If you are unsure whether the displayed data is complete, check the time interval and partial-results messages before drawing conclusions.</div>
+  <footer>Cartochron · Map-reading guide · Illustrations use synthetic observations.</footer>
 </body>
 </html>
