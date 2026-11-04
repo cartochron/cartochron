@@ -134,7 +134,7 @@ class PlaceSearchTest(unittest.TestCase):
         finally:
             store.close()
 
-    def test_v5_to_v6_migration_adds_only_index(self):
+    def test_v5_to_current_migration_preserves_index_and_observations(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'observations.sqlite3'
             store = ObservationStore(path)
@@ -143,6 +143,7 @@ class PlaceSearchTest(unittest.TestCase):
             store.close()
             with sqlite3.connect(path) as db, db:
                 db.execute('DROP INDEX observations_place')
+                db.execute('DROP TABLE annotations')  # Truly reconstruct the v5 table set.
                 db.execute('PRAGMA user_version = 5')
             restored = ObservationStore(path)
             try:

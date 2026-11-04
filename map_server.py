@@ -131,6 +131,30 @@ def parse_runs_query(query):
             "channel_id": cid, "source_id": sid}
 
 
+def parse_annotations_query(query):
+    """Read-only note lookup by exact evidence IDs, never by inferred location."""
+    if len(query) > 160:
+        raise ValueError("query is too long")
+    try:
+        params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=4)
+    except ValueError as exc:
+        raise ValueError("invalid query string") from exc
+    if (set(params) - {"fix_id", "limit", "before"} or
+            not 1 <= len(params.get("fix_id", [])) <= 2 or
+            any(len(params.get(name, [])) > 1 for name in ("limit", "before"))):
+        raise ValueError("supply one or two fix_id values")
+    def positive(raw, name, maximum):
+        if not re.fullmatch(r"[1-9][0-9]{0,18}", raw) or int(raw) > maximum:
+            raise ValueError(f"invalid {name}")
+        return int(raw)
+    fixes = tuple(positive(raw, "fix_id", (1 << 63) - 1) for raw in params["fix_id"])
+    limit = positive(params.get("limit", ["50"])[0], "limit", 100)
+    before = params.get("before", [None])[0]
+    return {"fix_ids": fixes, "limit": limit,
+            "before": positive(before, "before", (1 << 63) - 1) if before is not None else None}
+
+
 def parse_place_query(query):
     """Parse an exact, bounded place/evidence query on the receipt clock."""
     if len(query) > 512:
@@ -329,6 +353,15 @@ class Handler(BaseHTTPRequestHandler):
             if not asset.is_file():
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
+        if path == "/api/annotations":
+            try:
+                data = self.server.store.annotations(
+                    **parse_annotations_query(urlsplit(self.path).query))
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/proximity":
             try:
                 data = self.server.store.run_proximity(

@@ -8,7 +8,7 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY --from=assets /build/vendor/leaflet ./vendor/leaflet
-COPY map_server.py observation_store.py sources.py channels.py index.html viewer.js manual.html ./
+COPY map_server.py observation_store.py sources.py channels.py annotations.py index.html viewer.js manual.html ./
 COPY docs/images/ ./docs/images/
 # Numeric unprivileged default for direct docker run; Compose uses the host UID/GID
 # so its private bind-mounted SQLite database can be backed up without chown.

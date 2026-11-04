@@ -12,12 +12,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_TRACKS = 100
 MAX_SOURCES = 100
 MAX_MONITOR = 100
 MAX_RUN_PAGE = 100
 MAX_PLACE_PAGE = 100
+MAX_ANNOTATIONS_PAGE = 100
+MAX_ANNOTATION_LENGTH = 2000
 MAX_PLACE_CANDIDATES = 2000  # Cap candidate rows returned to Python per page.
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
 TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -96,7 +98,7 @@ class ObservationStore:
             if existing:
                 raise ValueError("database has no Cartochron schema version; refusing to modify it")
             self._create_schema()
-        elif version in (1, 2, 3, 4, 5):
+        elif version in (1, 2, 3, 4, 5, 6):
             self._migrate(version)
         elif version != SCHEMA_VERSION:
             raise ValueError(f"unsupported database schema version: {version}")
@@ -143,6 +145,7 @@ class ObservationStore:
                 ON observations(track_id, received_ms, id)
             """)
             self._db.execute("CREATE INDEX observations_place ON observations(lat, lon, id)")
+            self._create_annotations()
             self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _migrate(self, version):
@@ -217,6 +220,95 @@ class ObservationStore:
                 self._db.execute("BEGIN IMMEDIATE")
                 self._db.execute("CREATE INDEX observations_place ON observations(lat, lon, id)")
                 self._db.execute("PRAGMA user_version = 6")
+            version = 6
+
+        if version == 6:
+            # Operator interpretations have their own immutable records.
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._create_annotations()
+                self._db.execute("PRAGMA user_version = 7")
+
+    def _create_annotations(self):
+        """Link notes to recorded fixes, never to interpreted coordinates or labels."""
+        self._db.execute("""
+            CREATE TABLE annotations (
+                id INTEGER PRIMARY KEY,
+                created_ms INTEGER NOT NULL,
+                fix_a INTEGER NOT NULL REFERENCES observations(id) ON DELETE RESTRICT,
+                fix_b INTEGER REFERENCES observations(id) ON DELETE RESTRICT,
+                note TEXT NOT NULL,
+                CHECK (fix_b IS NULL OR fix_a < fix_b)
+            )
+        """)
+        self._db.execute("CREATE INDEX annotations_fix_a ON annotations(fix_a, id)")
+        self._db.execute("CREATE INDEX annotations_fix_b ON annotations(fix_b, id)")
+
+    @staticmethod
+    def _annotation_fixes(fix_ids):
+        if (not isinstance(fix_ids, (tuple, list)) or not 1 <= len(fix_ids) <= 2 or
+                any(type(fix) is not int or not 1 <= fix <= (1 << 63) - 1
+                    for fix in fix_ids) or len(set(fix_ids)) != len(fix_ids)):
+            raise ValueError("provide one or two different positive observation IDs")
+        return tuple(sorted(fix_ids))
+
+    def annotate(self, fix_ids, note):
+        """Append one operator note, anchored to existing immutable observations.
+
+        Only the local operator CLI calls this method. No HTTP write route exists.
+        Corrections are additional notes, never silent edits to earlier ones.
+        """
+        fixes = self._annotation_fixes(fix_ids)
+        if not self._persistent:
+            raise ValueError("annotations require a persistent database")
+        if (not isinstance(note, str) or not 1 <= len(note.strip()) <= MAX_ANNOTATION_LENGTH or
+                any((ord(ch) < 32 and ch != "\n") or ord(ch) == 127 for ch in note)):
+            raise ValueError("note must be 1-2000 printable characters (newlines allowed)")
+        with self._lock, self._db:
+            found = self._db.execute(
+                "SELECT id FROM observations WHERE id IN (" + ",".join("?" for _ in fixes) + ")",
+                fixes).fetchall()
+            if len(found) != len(fixes):
+                raise ValueError("one or more referenced observations do not exist")
+            return self._db.execute(
+                "INSERT INTO annotations(created_ms, fix_a, fix_b, note) VALUES (?, ?, ?, ?)",
+                (time.time_ns() // 1_000_000, fixes[0], fixes[1] if len(fixes) == 2 else None,
+                 note.strip())).lastrowid
+
+    def annotations(self, fix_ids, *, limit=50, before=None):
+        """Read a bounded note page for one fix or exactly one pair of fixes.
+
+        One fix: notes including that fix (single or paired).
+        Two fixes: notes explicitly linked to that exact pair only.
+        """
+        fixes = self._annotation_fixes(fix_ids)
+        if type(limit) is not int or not 1 <= limit <= MAX_ANNOTATIONS_PAGE:
+            raise ValueError("limit must be 1..100")
+        if before is not None and (type(before) is not int or not 1 <= before <= (1 << 63) - 1):
+            raise ValueError("invalid before cursor")
+        if len(fixes) == 1:
+            scope, parameters = "(a.fix_a = ? OR a.fix_b = ?)", [fixes[0], fixes[0]]
+        else:
+            scope, parameters = "a.fix_a = ? AND a.fix_b = ?", list(fixes)
+        if before is not None:
+            scope += " AND a.id < ?"
+            parameters.append(before)
+        with self._lock:
+            rows = self._db.execute(f"""
+                SELECT a.id, a.created_ms, a.fix_a, a.fix_b, a.note,
+                       oa.track_id, ob.track_id
+                FROM annotations a
+                JOIN observations oa ON oa.id = a.fix_a
+                LEFT JOIN observations ob ON ob.id = a.fix_b
+                WHERE {scope} ORDER BY a.id DESC LIMIT ?
+            """, (*parameters, limit + 1)).fetchall()
+        page = rows[:limit]
+        return {"annotations": [
+            {"id": id_, "created": self._timestamp(created_ms, "milliseconds"),
+             "fix_ids": [a] if b is None else [a, b],
+             "run_ids": [run_a] if b is None else [run_a, run_b], "note": note}
+            for id_, created_ms, a, b, note, run_a, run_b in page],
+            "next_cursor": str(page[-1][0]) if len(rows) > limit else None}
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.
@@ -227,6 +319,7 @@ class ObservationStore:
         self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
         self._db.execute("SELECT track_id, source_id, channel_id FROM runs LIMIT 0")
         self._db.execute("SELECT channel_id, label FROM channel_labels LIMIT 0")
+        self._db.execute("SELECT id, created_ms, fix_a, fix_b, note FROM annotations LIMIT 0")
 
     @staticmethod
     def _valid_label(label):
