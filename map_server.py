@@ -129,6 +129,36 @@ def parse_runs_query(query):
             "channel_id": cid, "source_id": sid}
 
 
+def parse_place_query(query):
+    """Parse a bounded cross-run proximity search; no inferred source identity."""
+    if len(query) > 256:
+        raise ValueError("query is too long")
+    try:
+        params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=5)
+    except ValueError as exc:
+        raise ValueError("invalid query string") from exc
+    if set(params) - {"lat", "lon", "radius_m", "limit", "before"} or any(
+            len(values) != 1 for values in params.values()):
+        raise ValueError("unknown or repeated place parameter")
+    try:
+        lat = float(params["lat"][0])
+        lon = float(params["lon"][0])
+        radius = float(params["radius_m"][0])
+    except (KeyError, ValueError, OverflowError) as exc:
+        raise ValueError("lat, lon and radius_m are required numbers") from exc
+    raw_limit = params.get("limit", ["50"])[0]
+    raw_before = params.get("before", [None])[0]
+    if (re.fullmatch(r"[1-9][0-9]{0,2}", raw_limit) is None
+            or int(raw_limit) > 100):
+        raise ValueError("limit must be 1..100")
+    if raw_before is not None and (re.fullmatch(r"[1-9][0-9]{0,18}", raw_before) is None
+                                  or int(raw_before) > (1 << 63) - 1):
+        raise ValueError("invalid before cursor")
+    return {"lat": lat, "lon": lon, "radius_m": radius,
+            "limit": int(raw_limit), "before": int(raw_before) if raw_before else None}
+
+
 class Server(ThreadingHTTPServer):
     # Drain in-flight requests before closing their shared SQLite connection.
     daemon_threads = False
@@ -246,6 +276,15 @@ class Handler(BaseHTTPRequestHandler):
             if not asset.is_file():
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
+        if path == "/api/place/observations":
+            try:
+                data = self.server.store.place_observations(
+                    **parse_place_query(urlsplit(self.path).query))
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/points/recent":
             # Explicit track selection is a separate operation from ascending,
             # cursor-based history queries. Do not confuse recent with page 1.

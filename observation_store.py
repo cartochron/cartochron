@@ -12,11 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_TRACKS = 100
 MAX_SOURCES = 100
 MAX_MONITOR = 100
 MAX_RUN_PAGE = 100
+MAX_PLACE_PAGE = 100
+MAX_PLACE_CANDIDATES = 2000  # Cap candidate rows returned to Python per page.
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
 TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 CHANNEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -94,7 +96,7 @@ class ObservationStore:
             if existing:
                 raise ValueError("database has no Cartochron schema version; refusing to modify it")
             self._create_schema()
-        elif version in (1, 2, 3, 4):
+        elif version in (1, 2, 3, 4, 5):
             self._migrate(version)
         elif version != SCHEMA_VERSION:
             raise ValueError(f"unsupported database schema version: {version}")
@@ -140,6 +142,7 @@ class ObservationStore:
                 CREATE INDEX observations_track_time
                 ON observations(track_id, received_ms, id)
             """)
+            self._db.execute("CREATE INDEX observations_place ON observations(lat, lon, id)")
             self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _migrate(self, version):
@@ -206,6 +209,14 @@ class ObservationStore:
                     )
                 """)
                 self._db.execute("PRAGMA user_version = 5")
+            version = 5
+
+        if version == 5:
+            # Spatial bounding-box lookup, without modifying observations.
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute("CREATE INDEX observations_place ON observations(lat, lon, id)")
+                self._db.execute("PRAGMA user_version = 6")
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.
@@ -553,6 +564,84 @@ class ObservationStore:
             "truncated": more,
             "next_cursor": f"{selected[-1][1]}:{selected[-1][0]}" if more else None,
         }
+
+    def place_observations(self, lat, lon, radius_m, *, limit=50, before=None):
+        """Find recorded fixes near a place across *all* recording runs.
+
+        A bounding box narrows indexed candidates; great-circle distance then
+        determines inclusion. The cursor counts *examined candidates* rather
+        than matches, so a page with no matches can still have another page.
+        It orders by ingestion row ID, never presumes clocks are monotonic.
+        """
+        if (type(lat) not in (float, int) or not math.isfinite(lat) or not -90 <= lat <= 90
+                or type(lon) not in (float, int) or not math.isfinite(lon) or not -180 <= lon <= 180):
+            raise ValueError("invalid place coordinates")
+        if (type(radius_m) not in (float, int) or not math.isfinite(radius_m)
+                or not 10 <= radius_m <= 1000):
+            raise ValueError("radius_m must be between 10 and 1000")
+        if type(limit) is not int or not 1 <= limit <= MAX_PLACE_PAGE:
+            raise ValueError("limit must be 1..100")
+        if before is not None and (type(before) is not int or not 1 <= before <= (1 << 63) - 1):
+            raise ValueError("invalid before cursor")
+        # Conservative bounding box, including near the poles and date line.
+        delta_lat = radius_m / 110_000
+        low_lat, high_lat = max(-90, lat - delta_lat), min(90, lat + delta_lat)
+        outer_lat = min(90, abs(lat) + delta_lat)
+        cosine = math.cos(math.radians(outer_lat))
+        delta_lon = 180 if cosine < 0.0001 else min(180, radius_m / (110_000 * cosine))
+        lon_low, lon_high = lon - delta_lon, lon + delta_lon
+        if delta_lon == 180:
+            lon_clause, lon_params = "", []
+        elif lon_low < -180:
+            lon_clause, lon_params = "AND (o.lon >= ? OR o.lon <= ?)", [lon_low + 360, lon_high]
+        elif lon_high > 180:
+            lon_clause, lon_params = "AND (o.lon >= ? OR o.lon <= ?)", [lon_low, lon_high - 360]
+        else:
+            lon_clause, lon_params = "AND o.lon BETWEEN ? AND ?", [lon_low, lon_high]
+        # Limit candidate rows transferred to Python. SQLite's indexed
+        # bounding-box lookup can still scan/sort more entries internally;
+        # this is a result bound, not a global CPU-time guarantee.
+        sql = f"""
+            SELECT o.id, o.track_id, o.received_ms, o.lat, o.lon,
+                   o.measured_ms, o.provider, o.accuracy_m,
+                   r.source_id, s.label, r.channel_id, c.label
+            FROM observations o INDEXED BY observations_place
+            LEFT JOIN runs r ON r.track_id = o.track_id
+            LEFT JOIN sources s ON s.source_id = r.source_id
+            LEFT JOIN channel_labels c ON c.channel_id = r.channel_id
+            WHERE o.lat BETWEEN ? AND ? {lon_clause}
+                  AND o.id < ?
+            ORDER BY o.id DESC LIMIT ?
+        """
+        params = [low_lat, high_lat, *lon_params,
+                  before if before is not None else (1 << 63) - 1,
+                  MAX_PLACE_CANDIDATES + 1]
+        with self._lock:
+            rows = self._db.execute(sql, params).fetchall()
+        matches = []
+        scanned = 0
+        last_examined = None
+        for row in rows[:MAX_PLACE_CANDIDATES]:
+            if len(matches) == limit:
+                break
+            identifier, track_id, received, plat, plon, measured, provider, accuracy, sid, slabel, cid, clabel = row
+            scanned += 1
+            last_examined = identifier
+            phi, phi0 = math.radians(plat), math.radians(lat)
+            dphi = phi - phi0
+            dlambda = math.radians(plon - lon)
+            hav = (math.sin(dphi / 2) ** 2 + math.cos(phi0) * math.cos(phi)
+                   * math.sin(dlambda / 2) ** 2)
+            meters = 12_742_000 * math.asin(min(1, math.sqrt(max(0, hav))))
+            if meters <= radius_m:
+                point = self._historical_point((identifier, received, plat, plon,
+                                                measured, provider, accuracy))
+                point.update(track_id=track_id, channel_id=cid, channel_label=clabel,
+                             source_id=sid, source_label=slabel, distance_m=round(meters, 1))
+                matches.append(point)
+        has_more = len(rows) > scanned
+        return {"points": matches, "scanned": scanned, "truncated": has_more,
+                "next_cursor": str(last_examined) if has_more else None}
 
     def close(self):
         with self._lock:
