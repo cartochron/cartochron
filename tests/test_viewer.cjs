@@ -812,3 +812,105 @@ test('place scope choices reuse known identities without selecting a History run
   assert.equal(scopes[2].value, 'source:src_' + 'b'.repeat(24));
   assert.equal(ui.exec('historyFilter'), '');
 });
+
+function placeEvidence(id, track, minute, {source = null, channel = null,
+  accuracy = null, reportedAt = null, lat = 47, lon = 28} = {}) {
+  return {id, track_id: track, source_id: source, channel_id: channel,
+    lat, lon, accuracy_m: accuracy,
+    measured_time: reportedAt,
+    time: new Date(Date.UTC(2026, 10, 3, 10, 0) + minute * 60_000).toISOString(),
+    distance_m: 10};
+}
+
+test('temporal proximity keeps source claims separate and excludes same-source channels', () => {
+  const ui = viewer();
+  const sourceA = 'src_' + 'a'.repeat(24);
+  const sourceB = 'src_' + 'b'.repeat(24);
+  const fixes = [
+    placeEvidence(1, 'a-gpsd', 0, {source: sourceA, channel: 'gpsd.a'}),
+    placeEvidence(2, 'a-msf', 0.5, {source: sourceA, channel: 'msf.a'}),
+    placeEvidence(3, 'b-gpsd', 1, {source: sourceB, channel: 'gpsd.b'}),
+    placeEvidence(4, 'different-source-same-input', 1, {source: sourceB, channel: 'gpsd.a'}),
+    placeEvidence(5, 'anonymous', 1),
+  ];
+  ui.context.fixtureProximity = fixes;
+  const pairs = ui.exec('temporalProximityWitnesses(fixtureProximity, 60000)');
+  assert.equal(pairs.length, 1); // Only a-msf/b-gpsd survives mixed-channel exclusion
+  assert(pairs.every(p => p.identity.kind === 'source'));
+  assert(pairs.every(p => ![p.a, p.b].some(v => v.track_id === 'anonymous')));
+  assert(pairs.every(p => ![p.a, p.b].some(v => v.track_id === 'different-source-same-input')));
+  assert.equal(ui.exec('mixedSourceChannels(fixtureProximity).has("gpsd.a")'), true);
+});
+
+test('different unassigned channels are comparison candidates, not verified sources', () => {
+  const ui = viewer();
+  ui.context.fixtureProximity = [
+    placeEvidence(1, 'oneplus-1', 0, {channel: 'gpsd.oneplus', accuracy: 8}),
+    placeEvidence(2, 'lg-1', 3, {channel: 'gpsd.lg', accuracy: 15}),
+    placeEvidence(3, 'lg-2', 3.5, {channel: 'gpsd.lg'}),
+  ];
+  const pairs = ui.exec('temporalProximityWitnesses(fixtureProximity, 300000)');
+  assert.equal(pairs.length, 2);
+  assert(pairs.every(p => p.identity.kind === 'channel'));
+  assert(pairs.every(p => p.separation === 0));
+  assert.equal(ui.exec('temporalProximityWitnesses(fixtureProximity, 60000).length'), 0);
+});
+
+test('proximity follows receiver receipt clock, not reported GPS acquisition clock', () => {
+  const ui = viewer();
+  ui.context.fixtureProximity = [
+    placeEvidence(1, 'a', 0, {channel: 'gpsd.a', reportedAt: '2026-05-01T01:00:00Z'}),
+    placeEvidence(2, 'b', 3, {channel: 'gpsd.b', reportedAt: '2026-05-01T01:00:00Z'}),
+  ];
+  assert.equal(ui.exec('temporalProximityWitnesses(fixtureProximity, 60000).length'), 0);
+  assert.equal(ui.exec('temporalProximityWitnesses(fixtureProximity, 300000)[0].difference'), 180000);
+});
+
+test('place witness comparisons update across pages, windows and changed locations', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.element('place-radius').value = '100';
+  ui.element('place-proximity-window').value = '5';
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  const pages = [
+    {points: [placeEvidence(3, 'b', 3, {channel: 'gpsd.b', accuracy: 7})], next_cursor: '2'},
+    {points: [placeEvidence(2, 'a', 1, {channel: 'gpsd.a', accuracy: 12})], next_cursor: null},
+  ];
+  let requests = 0;
+  ui.context.fetch = async () => ({ok: true, json: async () => pages[requests++]});
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(ui.element('place-proximity-results').children.length, 0);
+  assert.match(ui.element('place-proximity-status').textContent, /incomplete retrieved coverage/);
+  await ui.exec('searchRecordedPlace(true)');
+  const entries = ui.element('place-proximity-results').children;
+  assert.equal(entries.length, 1);
+  assert.match(entries[0].textContent, /Different channel claims only/);
+  assert.match(entries[0].textContent, /Δt 120s/);
+  assert.match(entries[0].textContent, /reported accuracy 12 m \/ 7 m/);
+  assert.equal(entries[0].innerHTML, undefined); // No operator-controlled HTML interpolation.
+  assert.match(ui.element('place-proximity-status').textContent, /retrieved search complete/);
+  ui.element('place-proximity-window').value = '1';
+  ui.element('place-proximity-window').events.change();
+  assert.equal(ui.element('place-proximity-results').children.length, 0);
+  ui.element('place-proximity-window').value = '5';
+  ui.element('place-proximity-window').events.change();
+  assert.equal(ui.element('place-proximity-results').children.length, 1);
+  ui.map.events.click({latlng: {lat: 48, lng: 29}});
+  assert.equal(ui.element('place-proximity-results').children.length, 0);
+  assert.match(ui.element('place-proximity-status').textContent, /Search recorded history/);
+});
+
+test('proximity output counts repeated observation pairs, not encounters, and caps display', () => {
+  const ui = viewer();
+  const fixes = [];
+  for (let i = 0; i < 20; i++) {
+    fixes.push(placeEvidence(i * 2 + 1, 'a', i / 100, {channel: 'gpsd.a'}));
+    fixes.push(placeEvidence(i * 2 + 2, 'b', i / 100, {channel: 'gpsd.b'}));
+  }
+  ui.context.fixtureProximity = fixes;
+  ui.exec('placeSearchMatches = fixtureProximity; placeSearchCount = fixtureProximity.length; placeSearchCursor = null; renderPlaceProximity()');
+  assert.equal(ui.element('place-proximity-results').children.length, 40);
+  assert.match(ui.element('place-proximity-status').textContent, /400 qualifying observation pairs/);
+  assert.match(ui.element('place-proximity-status').textContent, /not meetings/);
+});

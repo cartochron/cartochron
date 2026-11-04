@@ -34,6 +34,7 @@ let placeSearchMatches = [];
 const MAX_PLACE_DISPLAY = 500;
 const PLACE_GROUP_GAP_MS = 5 * 60 * 1000; // A display rule, not inferred dwell.
 const MAX_PLACE_GROUPS = 80;
+const MAX_PLACE_WITNESSES = 40; // Display only; qualifying pairs are counted.
 
 let catalogue = [];
 let monitorCatalogue = [];
@@ -776,6 +777,8 @@ function resetDatabasePlaceSearch() {
   $('place-db-results').replaceChildren();
   $('place-clusters').replaceChildren();
   $('place-cluster-status').textContent = 'Matching-fix groups appear after searching.';
+  $('place-proximity-results').replaceChildren();
+  $('place-proximity-status').textContent = 'Search recorded history to compare receipt times.';
   $('place-next').hidden = true;
   $('place-search').disabled = !placeSelection || mode !== 'history';
   $('place-db-status').textContent = placeSelection
@@ -821,6 +824,101 @@ function renderPlaceGroups() {
     + ' they are not visits or evidence of continuous presence.';
 }
 
+function proximityIdentity(a, b) {
+  // Enrollment claims are stronger than channel claims, but neither proves a
+  // device or person. Two channels of the SAME enrolled source are not two
+  // independently identified sources. A common channel is also not separate.
+  if (a.track_id === b.track_id) return null;
+  if (a.source_id && b.source_id && a.source_id === b.source_id) return null;
+  if (a.channel_id && b.channel_id && a.channel_id === b.channel_id) return null;
+  if (a.source_id && b.source_id) {
+    return {kind: 'source',
+      left: a.source_label ? `${a.source_label} [${a.source_id}]` : a.source_id,
+      right: b.source_label ? `${b.source_label} [${b.source_id}]` : b.source_id};
+  }
+  if (a.channel_id && b.channel_id) {
+    return {kind: 'channel',
+      left: a.channel_label ? `${a.channel_label} [${a.channel_id}]` : a.channel_id,
+      right: b.channel_label ? `${b.channel_label} [${b.channel_id}]` : b.channel_id};
+  }
+  // Run IDs, provider names and coincident positions do not establish
+  // independent acquisition identities.
+  return null;
+}
+
+function mixedSourceChannels(fixes) {
+  // A channel carrying incompatible enrolled-source claims is ambiguous.
+  // Do not use it to support a cross-source candidate on these loaded pages.
+  const claims = new Map();
+  for (const p of fixes) if (p.channel_id && p.source_id) {
+    if (!claims.has(p.channel_id)) claims.set(p.channel_id, new Set());
+    claims.get(p.channel_id).add(p.source_id);
+  }
+  return new Set([...claims].filter(([, sources]) => sources.size > 1)
+    .map(([channel]) => channel));
+}
+
+function temporalProximityWitnesses(fixes, windowMs) {
+  // Every witness is exactly two retrieved observations from different runs.
+  // Sort by *receiver receipt time*, not arrival order or claimed GPS time.
+  const conflicts = mixedSourceChannels(fixes);
+  const ordered = fixes.filter(p => !conflicts.has(p.channel_id))
+    .map(p => ({p, ms: Date.parse(p.time)}))
+    .filter(entry => Number.isFinite(entry.ms))
+    .sort((a, b) => a.ms - b.ms || a.p.id - b.p.id);
+  const witnesses = [];
+  for (let i = 0; i < ordered.length; i++) {
+    const a = ordered[i];
+    for (let j = i + 1; j < ordered.length; j++) {
+      const b = ordered[j];
+      const difference = b.ms - a.ms;
+      if (difference > windowMs) break;
+      const identity = proximityIdentity(a.p, b.p);
+      if (!identity) continue;
+      witnesses.push({a: a.p, b: b.p, difference, identity,
+        separation: distanceMeters(a.p, b.p)});
+    }
+  }
+  // Show the tightest receipt-time matches first. Repeated reports may
+  // multiply pairs; the count is comparisons, not distinct encounters.
+  witnesses.sort((a, b) => a.difference - b.difference
+    || Math.max(Date.parse(b.a.time), Date.parse(b.b.time))
+       - Math.max(Date.parse(a.a.time), Date.parse(a.b.time))
+    || a.a.id - b.a.id || a.b.id - b.b.id);
+  return witnesses;
+}
+
+function renderPlaceProximity() {
+  const list = $('place-proximity-results');
+  list.replaceChildren();
+  if (!placeSearchCount) {
+    $('place-proximity-status').textContent = 'No retrieved matching fixes to compare.';
+    return;
+  }
+  const windowMinutes = Number($('place-proximity-window').value || 5);
+  const conflicts = mixedSourceChannels(placeSearchMatches);
+  const matches = temporalProximityWitnesses(placeSearchMatches, windowMinutes * 60_000);
+  for (const match of matches.slice(0, MAX_PLACE_WITNESSES)) {
+    const li = document.createElement('li');
+    const kind = match.identity.kind === 'source'
+      ? 'Different enrolled source claims' : 'Different channel claims only';
+    const seconds = Math.round(match.difference / 1000);
+    li.textContent = `${kind}: ${match.identity.left} (${match.a.track_id} / fix ${match.a.id})`
+      + ` and ${match.identity.right} (${match.b.track_id} / fix ${match.b.id})`
+      + ` · receipts ${localTime(match.a.time)} / ${localTime(match.b.time)}`
+      + ` · Δt ${seconds}s · reported positions ${Math.round(match.separation)} m apart`
+      + ` · reported accuracy ${match.a.accuracy_m ?? 'unknown'} m / ${match.b.accuracy_m ?? 'unknown'} m`;
+    list.appendChild(li);
+  }
+  const incomplete = Boolean(placeSearchCursor) || placeSearchCount >= MAX_PLACE_DISPLAY;
+  $('place-proximity-status').textContent = `${matches.length} qualifying observation pair${matches.length === 1 ? '' : 's'}`
+    + ` within ${windowMinutes} minute${windowMinutes === 1 ? '' : 's'} of RECEIPT time`
+    + ` (showing ${Math.min(matches.length, MAX_PLACE_WITNESSES)} closest pairs)`
+    + (incomplete ? '; incomplete retrieved coverage, more history may remain' : '; retrieved search complete at query time')
+    + (conflicts.size ? `; excluded ${conflicts.size} channel${conflicts.size === 1 ? '' : 's'} with mixed source claims` : '')
+    + '. Pairs are not meetings, co-presence, independent fixes, or continuous presence.';
+}
+
 function placeReceiptFilter(id, name) {
   const value = $(id).value;
   if (!value) return null;
@@ -857,6 +955,8 @@ async function searchRecordedPlace(more = false) {
     placeSearchMatches = [];
     $('place-db-results').replaceChildren();
     $('place-clusters').replaceChildren();
+    $('place-proximity-results').replaceChildren();
+    $('place-proximity-status').textContent = 'Searching recorded observations…';
   }
   $('place-search').disabled = true;
   $('place-next').hidden = true;
@@ -875,6 +975,7 @@ async function searchRecordedPlace(more = false) {
     }
     placeSearchCursor = page.next_cursor;
     renderPlaceGroups();
+    renderPlaceProximity();
     const moreAvailable = Boolean(page.next_cursor);
     const capped = placeSearchCount >= MAX_PLACE_DISPLAY;
     $('place-next').hidden = !moreAvailable || capped;
@@ -1105,6 +1206,7 @@ for (const id of ['place-scope', 'place-from', 'place-to'])
   $(id).addEventListener('change', resetDatabasePlaceSearch);
 $('place-search').addEventListener('click', () => searchRecordedPlace());
 $('place-next').addEventListener('click', () => searchRecordedPlace(true));
+$('place-proximity-window').addEventListener('change', renderPlaceProximity);
 map.on('click', event => {
   if (mode !== 'history' || $('place-panel').hidden) return;
   placeSelection = {lat: event.latlng.lat, lon: event.latlng.lng};

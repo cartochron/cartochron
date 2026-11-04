@@ -22,8 +22,8 @@
     #place-panel {margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #place-panel .controls {margin-bottom:8px}
     #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
-    #place-status, #place-cluster-status {font-size:12px;color:#bdd0db}
-    #place-clusters {max-height:165px;overflow:auto;padding-left:22px;font-size:12px}
+    #place-status, #place-cluster-status, #place-proximity-status {font-size:12px;color:#bdd0db}
+    #place-clusters, #place-proximity-results {max-height:165px;overflow:auto;padding-left:22px;font-size:12px}
     #layers-panel {display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #layers-list {display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:100%}
     .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
@@ -133,6 +133,15 @@
       </div>
       <p id="place-cluster-status">Matching-fix groups appear after searching.</p>
       <ol id="place-clusters" aria-label="Groups of retrieved matching observations"></ol>
+      <div class="controls">
+        <strong>Candidate temporal proximity</strong>
+        <label>Receipt-time window <select id="place-proximity-window" aria-label="Candidate receipt-time window">
+          <option value="1">1 minute</option><option value="5" selected>5 minutes</option>
+          <option value="15">15 minutes</option>
+        </select></label>
+      </div>
+      <p id="place-proximity-status" role="status">Search recorded history to compare receipt times.</p>
+      <ol id="place-proximity-results" aria-label="Candidate temporal proximity evidence pairs"></ol>
       <details><summary>Individual matching observations</summary>
         <ol id="place-db-results" aria-label="Database-wide recorded observations near selected place"></ol>
       </details>
