@@ -223,9 +223,15 @@ The result is a **bounded sample of candidate pairs**, not a count of all
 cross-run pairs. Reversing the run order can produce different candidates.
 
 The History interface exposes this as **Across places**. A pair can be shown
-on the map as two independent markers, with no connecting route. Separate
-source and channel assertions remain visible, including when their display
-labels change.
+on the map as two independent markers, with no connecting route. **Inspect
+timeline** retrieves one bounded `/api/points?track_id=...&from=...&to=...&limit=1000`
+page for each run, centered on the chosen pair with 15 minutes of context on
+either side. It displays the witnesses, neighboring recorded fixes and gaps
+between consecutive fetched fixes from each run. No separate timeline endpoint
+or persistence is introduced. A non-null `next_cursor` marks a **partial**
+context; page edges never establish gaps or adjacency to unavailable fixes.
+Separate source and channel assertions remain visible, including when their
+display labels change.
 
 ## Manual ingestion test
 

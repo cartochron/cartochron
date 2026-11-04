@@ -230,6 +230,26 @@ distance. Click **Map pair** to frame their reported positions. Two coincident
 reports share one visual symbol with both identifiers available. There is no
 line between them: that line would be a movement assertion we did not observe.
 
+**Inspect timeline** on an individual pair opens a second, deliberately bounded
+question: *what was recorded immediately before and after these two reported
+fixes?* Cartochron requests one page (at most 1,000 observations) from each
+run over a receipt-time interval extending 15 minutes before the earlier fix
+and 15 minutes after the later fix. The timeline sorts evidence by server
+receipt time and displays the two selected fixes, their immediately adjacent
+recorded fixes within the retrieved window, and gaps greater than ten minutes
+between consecutive retrieved fixes **within the same run**. **Map fix** shows
+one original observation without drawing a connecting line.
+
+The timeline summarizes, rather than lists, every retrieved fix; History and
+the HTTP point-history API still provide the individual observations. If
+another page remains, the display says **Partial context**, and it does not
+claim adjacency to an unseen later fix. Gaps cannot be inferred at the edges
+of the selected interval or across recording-run boundaries. A gap means no
+intervening recorded fix for that run, **not** that a phone disconnected,
+remained somewhere, or ceased moving. Each fix's reported measurement time,
+when available, is displayed separately from receipt time. Neither the
+chosen pair nor neighboring fixes establish a meeting.
+
 The search is bounded: one nearby reported fix is selected per anchor, up to
 200 anchors examined per page. When there is more evidence, click **Older
 candidate page**. A dense target run may exceed the per-anchor candidate
