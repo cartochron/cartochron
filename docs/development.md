@@ -12,6 +12,7 @@ services and test wrappers unless a real failure demands them.
 - `observation_store.py`: SQLite schema, atomic writes, and historical queries
 - `sources.py`: local enrollment and source display names
 - `channels.py`: operator-owned channel display names (no HTTP write API)
+- `annotations.py`: private, append-only evidence-linked interpretation CLI
 - `index.html`, `viewer.js`, `manual.html`: browser and its built-in help
 - `demo.py`, `replay.py`: synthetic history and local-only HTTP rehearsal
 - `vendor_leaflet.py`: installs the pinned, checksum-verified Leaflet distribution

@@ -119,7 +119,11 @@
   <p>The comparison selects at most one nearby fix from the second run per examined fix in the first run. Pages examine up to 200 first-run observations and cap dense second-run candidate windows. The screen explicitly reports when further pages remain or candidate windows were capped. Results can differ if you reverse the selected runs. A missing pair is not proof of physical separation.</p>
   <p>Runs sharing the same enrolled source or acquisition channel are not considered independent, and a channel with contradictory source assertions is refused. Different channel claims alone do not prove two phones. Matching receipt times do not establish matching GPS measurement times. These are <em>observation witnesses, not meetings or visits</em>.</p>
 
-  <h2 id="questions">7. Common questions</h2>
+  <h2 id="annotations">7. Link an operator interpretation to exact recorded evidence</h2>
+  <p>In <strong>Across places → Inspect timeline</strong>, expand <strong>How to add a note</strong>. The generated local operator command cites the two original observation IDs. Use <strong>Read linked notes</strong> to inspect saved interpretations associated with that exact witness pair; <strong>Older notes</strong> loads further pages if present. A note is the investigator's statement, never a GPS measurement or verified encounter.</p>
+  <p>Annotation creation requires local access to the private SQLite database through <code>annotations.py</code>. There is intentionally no browser annotation-write endpoint: the existing HTTP Basic credential also authorizes collection, not independent investigator judgment. Notes are append-only and should be protected alongside the database and backups. See the <a href="https://github.com/cartochron/cartochron/blob/master/docs/handbook.md">handbook</a> for examples. Neither source identity nor the recorded fix is altered by adding a note.</p>
+
+  <h2 id="questions">8. Common questions</h2>
   <h3>Why is my comparison track missing?</h3>
   <p>Open <strong>Tracks</strong> and verify that it is checked. If <strong>Comparison time</strong> says <strong>Same interval</strong>, its observations might fall outside the focused run's time window. Try <strong>Entire runs (spatial)</strong> to compare locations across different times.</p>
   <h3>Why is there no line, or why does the line stop?</h3>

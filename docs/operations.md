@@ -85,6 +85,29 @@ retrospective claims about who supplied a fix.
 A source ID identifies an operator-enrolled producer; it is not an
 authentication token or proof of device identity.
 
+## Operator annotations
+
+After upgrading to schema v7, you can append an interpretation linked to an
+actual observation ID (or a pair of IDs). Use the private database on the
+receiver; never send notes through the observation API:
+
+```sh
+docker compose exec -T cartochron python3 annotations.py \
+    --db /data/observations.sqlite3 add --fix 123 --fix 456 <<'NOTE'
+Question: do these reports describe independent measurement epochs?
+NOTE
+```
+
+Use `docker compose exec cartochron python3 annotations.py --db
+/data/observations.sqlite3 list --fix 123` to list notes for one observation.
+The command reads UTF-8 text from stdin by default, so it does not put the
+note body in the process arguments. Access to the host database and backups
+must be protected: notes may contain sensitive investigative hypotheses.
+See [the handbook](handbook.md#9-record-a-hypothesis-without-altering-observations).
+
+**Back up before v6→v7 migration.** A previous receiver cannot read schema
+v7. No change to the GPSD or Metasploit adapter is necessary.
+
 ## Back up and restore
 
 **Stop the receiver before copying the SQLite file.** This is the simplest

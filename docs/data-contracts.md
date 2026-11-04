@@ -1,6 +1,6 @@
 # Cartochron data contracts
 
-## Implemented: location observation protocol (v6 database)
+## Implemented: observations and operator annotations (v7 database)
 
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
@@ -26,10 +26,10 @@ opaque provider name), and `accuracy_m` (horizontal accuracy in metres).
 These are producer assertions, not independently verified measurements. All
 three fields are absent for legacy and current Meterpreter observations; missing
 values must never be replaced with server receipt time or guessed accuracy.
-Schema v4 adds nullable run-level `channel_id`. New databases create v5
-directly; v1/v2/v3 databases migrate without guessing old channel identities.
+Schema v4 adds nullable run-level `channel_id`. New databases create v7
+directly; v1–v6 databases migrate without guessing old channel identities.
 Legacy observations retain NULL for missing measurement metadata. Back up
-the database before upgrading; earlier Cartochron versions cannot open v5.
+the database before upgrading; older Cartochron versions cannot open v7.
 Schema v5 adds a separate `channel_labels` display-name table. Changing labels
 never updates `runs.source_id`, `runs.channel_id`, or an observation. The label
 is an operator description, not authenticated source provenance.
@@ -53,6 +53,28 @@ repeated activity, or physical source identity. Result pages and candidate
 scans are bounded, and a cursor can exist even for an empty result page. The
 schema v6 migration adds a lookup index only; original observations and run
 attributions remain untouched.
+
+## Operator annotations (schema v7)
+
+An operator annotation is a separate, append-only interpretation anchored to
+**one existing observation ID or an exact pair of observation IDs**. The
+association does not modify original coordinates, receipt/measurement times,
+source/channel/run assertions or derived proximity results. Notes have a
+server-side creation timestamp and text, not an authenticated author or a
+claim of forensic custody. Corrections are additional notes.
+
+Adding notes is deliberately available only through the local `annotations.py`
+CLI with access to the private persistent database. The HTTP API is **read-only**
+for annotations. This avoids allowing the existing shared Basic credential,
+which is also used for observation ingestion, to write investigator judgments.
+Browser output treats note text as text, never HTML. A pair of fix IDs is an
+*evidence reference*, not proof of an encounter or a recorded event.
+
+Schema v7 adds an annotation table with foreign keys to the original stored
+observation rows. Old v6 history migrates without changing any previous
+observations. Annotated evidence cannot be deleted casually by a foreign-key
+cascade. Back up the SQLite database before upgrading; a v6 receiver cannot
+read a v7 database. In-memory reception is not a persistent annotation store.
 
 ## Not implemented: imported evidence or communications
 

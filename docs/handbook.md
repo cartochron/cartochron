@@ -264,6 +264,55 @@ is not evidence that two people were apart. Record the run IDs, query
 parameters, exact supporting fix IDs, coverage warnings and alternative
 explanations alongside any investigative hypothesis.
 
+### 9. Record a hypothesis without altering observations
+
+When investigating an **Across places** candidate pair, click **Inspect timeline** and expand **How to add a note**. Cartochron shows the exact
+original observation IDs and a ready-to-edit operator command. The separate
+**Read linked notes** action fetches saved interpretations for **that exact
+pair**; older notes have their own cursor. Switching to another candidate
+clears the displayed notes, even if an old network response arrives later.
+
+An annotation is a *statement by an operator*, not a newly measured GPS fix.
+It can attach to one original observation, or to a pair of observations (for
+example, the two witnesses of a candidate proximity, or the two endpoints of
+a recorded gap). A gap is still a lack of intervening receipts, not an
+assertion of where a device was between the endpoints.
+
+With the receiver's persistent Compose database, save a note by running the
+command from the Cartochron repository root (replace the example IDs with
+those from your timeline):
+
+```sh
+docker compose exec -T cartochron python3 annotations.py \
+    --db /data/observations.sqlite3 add --fix 123 --fix 456 <<'NOTE'
+Hypothesis: these receipt times appear close.
+Alternative: one producer may have replayed a cached position.
+Check actual measurement epochs and any missing recording windows.
+NOTE
+```
+
+For a single fix use one `--fix`. To read all notes associated with one fix
+from a terminal:
+
+```sh
+docker compose exec cartochron python3 annotations.py \
+    --db /data/observations.sqlite3 list --fix 123
+```
+
+The note body is read from standard input, **not stored in command-line
+arguments or shell history**. It is still sensitive and persisted in SQLite:
+protect the database and its backups. Notes are append-only in this first
+version; to correct an interpretation, append a new one explaining why rather
+than silently changing the older statement. No author identity or forensic
+chain-of-custody claim is implied by a note's timestamp.
+
+The browser only *reads* annotations through the authenticated API. Creating
+one remains an operator-side command; Cartochron's current ingestion password
+cannot safely serve as an independent privilege to edit investigative
+conclusions. The annotations feature is not case management or an annotation
+SDK, and it does not rewrite the source/channel/run identities of the
+underlying observations.
+
 ## Part V — Three worked lines of inquiry
 
 **Question A: Was this source continuously present?** Select the source in
@@ -301,8 +350,8 @@ constraints. Avoid sharing private coordinates in issue reports or examples.
 
 The existing implementation provides map inspection, not a full case-management
 or forensic chain-of-custody system. Artifact import, incident overlays,
-annotations, saved investigative queries and evidence-backed report export
-remain **design directions**, as detailed in [the vision](vision.md).
+web-based annotation editing, saved investigative queries and evidence-backed
+report export remain **design directions**, as detailed in [the vision](vision.md).
 
 ## Part VII — Reference
 

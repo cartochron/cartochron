@@ -233,6 +233,30 @@ context; page edges never establish gaps or adjacency to unavailable fixes.
 Separate source and channel assertions remain visible, including when their
 display labels change.
 
+## Evidence-linked annotations (post-v0.1, schema v7)
+
+Read-only `GET /api/annotations` returns operator notes attached to exact
+recorded evidence. Specify one `fix_id` to retrieve notes referencing that
+observation (including paired notes); specify **two different `fix_id` values**
+to retrieve notes explicitly referencing *that exact pair*:
+
+```text
+GET /api/annotations?fix_id=123&fix_id=456&limit=20
+```
+
+The response contains `annotations` (each with `id`, `created`, `fix_ids`,
+`run_ids`, `note`) and `next_cursor`. Pages are newest-first, limit 1–100,
+default 50. Pass `before=<next_cursor>` for older notes. An empty page is not
+proof of any external event or absence; it means only that no annotations in
+that scope are stored. Results may change under concurrent operator writes.
+
+The endpoint shares the receiver's existing **read authentication**. There is
+**no POST/PUT/PATCH/DELETE annotation endpoint**. Write access is deliberately
+restricted to the local `annotations.py` operator command against the private
+SQLite file: the existing Basic ingestion credential does not grant authority
+to assert investigative interpretations. See [the handbook](handbook.md) for
+exact-ID CLI examples and the distinction between an observation and a note.
+
 ## Manual ingestion test
 
 With the default, unauthenticated local server:

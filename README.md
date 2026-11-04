@@ -86,8 +86,17 @@ For cross-run investigations, History's **Inspect place** keeps the loaded-run
 comparison and provides a separate **Search recorded history** action. The
 latter searches stored observations across runs with explicit pagination,
 receipt-time and source/channel filters, and provenance. Matching-fix groups
-summarize only retrieved results and do not infer visits or dwell times. This post-v0.1
-capability upgrades the SQLite database to schema v6; back up before upgrading.
+summarize only retrieved results and do not infer visits or dwell times. The place index first arrived in schema v6; the current schema is v7
+with evidence-linked annotations. Back up before upgrading.
+
+## Investigation annotations (post-v0.1)
+
+History → Across places → Inspect timeline can read operator notes attached to
+an exact pair of original fixes. Use the local `annotations.py` command to add
+notes, never the HTTP ingestion credential. Annotations are append-only
+interpretations, not observations, events or verified conclusions. This update
+migrates persistent SQLite history from v6 to v7; **back up before upgrading**.
+See the [handbook](docs/handbook.md#9-record-a-hypothesis-without-altering-observations).
 
 ## Testing
 
