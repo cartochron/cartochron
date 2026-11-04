@@ -146,8 +146,33 @@ that page. Like the run browser, this is **not a frozen snapshot** during
 concurrent ingestion. No reported fix is converted into an inferred visit,
 continuous presence, or a claim about a person/device.
 
-The initial database-wide search does not yet provide time-window filters,
-aggregate visits or dwell inference. It exposes individual evidence first.
+Optional `from` and `to` restrict **server receipt time** with the same
+RFC3339, millisecond-precision `[from, to)` convention as run History. Optional
+`channel_id` or `source_id` selects exactly one stored run association; these
+filters are mutually exclusive. A query may still span many distinct runs.
+For example:
+
+```sh
+curl -fsSG 'http://127.0.0.1:8765/api/place/observations' \
+  --data-urlencode 'lat=47' --data-urlencode 'lon=28' \
+  --data-urlencode 'radius_m=100' \
+  --data-urlencode 'from=2026-11-03T09:00:00Z' \
+  --data-urlencode 'to=2026-11-03T12:00:00Z' \
+  --data-urlencode 'channel_id=gpsd.oneplus'
+```
+
+The `before` cursor has meaning only with the **same** location, radius,
+time window and exact identity filter. Changing any of those resets the search.
+The result order still follows ingestion, not receipt time; the clock may have
+moved backwards. Narrow time or identity filters reduce the relevant candidate
+set but do not turn the indexed query into a hard CPU-time guarantee.
+
+The browser additionally groups **retrieved matching fixes** for inspection:
+fixes in the same run at most five minutes apart *by receipt time* form one
+matching-fix group. Groups can change when older pages are loaded and never
+mean a continuous visit, dwell interval, verified physical presence, or
+complete case-wide coverage. All individual observations remain accessible.
+No source association or historical observation is modified.
 Database schema v6 adds only a latitude/longitude lookup index on top of v5;
 back up the database before upgrading and do not downgrade the running
 receiver afterward.

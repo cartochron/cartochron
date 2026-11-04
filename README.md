@@ -83,8 +83,9 @@ receiver to rehearse Monitor mode.
 
 For cross-run investigations, History's **Inspect place** keeps the loaded-run
 comparison and provides a separate **Search recorded history** action. The
-latter searches stored observations across runs with explicit pagination and
-provenance rather than inferring visits from route lines. This post-v0.1
+latter searches stored observations across runs with explicit pagination,
+receipt-time and source/channel filters, and provenance. Matching-fix groups
+summarize only retrieved results and do not infer visits or dwell times. This post-v0.1
 capability upgrades the SQLite database to schema v6; back up before upgrading.
 
 ## Testing

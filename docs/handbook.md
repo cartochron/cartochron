@@ -153,6 +153,18 @@ distance. Use **Older search page** until the cursor is exhausted. A page with
 no matches may still have older candidates; do not interpret it as complete.
 The search is not a frozen database snapshot while acquisition continues.
 
+Use **Scope** to restrict the search to an enrolled source or configured
+channel; an unfiltered search covers all recorded identities. **From** and
+**To** restrict the server's *receipt clock*, using the operator's local time
+in the browser. This is not the same as a producer-reported GPS fix time.
+
+Above the raw evidence, the browser shows *matching-fix groups* from the
+observations it has retrieved so far. They join **only matching points of the
+same run** when successive receipt times are at most five minutes apart. Such
+groups can split or change as older pages arrive. They say nothing about what
+happened between the fixes, even if their timestamps are close. In particular,
+they are **not visits, dwell times or co-presence conclusions**.
+
 Record the coordinates, radius, time of query and completion state before
 reporting any finding. A geographic distance computed from reported
 coordinates is not a measured distance between physical people. Repeated fixes
