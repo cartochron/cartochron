@@ -914,3 +914,142 @@ test('proximity output counts repeated observation pairs, not encounters, and ca
   assert.match(ui.element('place-proximity-status').textContent, /400 qualifying observation pairs/);
   assert.match(ui.element('place-proximity-status').textContent, /not meetings/);
 });
+
+test('cross-run search finds witnesses from the database, not just loaded History points', async () => {
+  const ui = viewer();
+  ui.render([point(0)], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  ui.element('proximity-radius').value = '100';
+  ui.element('proximity-window').value = '300';
+  const requests = [];
+  const a = {...point(0), track_id: 'run-a', channel_id: 'gpsd.a', source_label: '<b>unsafe</b>'};
+  const b = {...point(1), track_id: 'run-b', channel_id: 'gpsd.b', accuracy_m: 7};
+  ui.context.fetch = async url => {
+    requests.push(url);
+    return {ok: true, json: async () => requests.length === 1
+      ? {pairs: [{a, b, identity_kind: 'channel', distance_m: 18, receipt_delta_ms: 5000}],
+         scanned: 20, next_cursor: '1800000000000:77', candidate_limited: false}
+      : {pairs: [], scanned: 5, next_cursor: null, candidate_limited: true}};
+  };
+  await ui.exec('searchRunProximity()');
+  assert.match(requests[0], /^\/api\/proximity\?/);
+  assert.match(requests[0], /other_track_id=run-b/);
+  assert.equal(ui.element('proximity-results').children.length, 1);
+  assert.match(ui.element('proximity-results').children[0].children[0].textContent,
+    /Different channel claims only/);
+  assert.match(ui.element('proximity-results').children[0].children[0].textContent, /unsafe/);
+  assert.equal(ui.element('proximity-results').children[0].children[0].innerHTML, undefined);
+  assert.equal(ui.exec('proximityLayer.layers.length'), 0); // Results never move map automatically.
+  ui.element('proximity-results').children[0].children[1].events.click();
+  assert.equal(ui.exec('proximityLayer.layers.length'), 2);
+  assert.equal(ui.fitted.length, 1);
+  assert.equal(ui.exec('overlayLayers.size'), 0); // No fake joined path.
+  await ui.exec('searchRunProximity(true)');
+  assert.match(requests[1], /before=1800000000000%3A77/);
+  assert.match(ui.element('proximity-status').textContent, /candidate.*may be missing/);
+  assert.equal(ui.element('proximity-next').hidden, true);
+  assert.equal(ui.element('proximity-results').children.length, 1);
+});
+
+test('cross-run search refuses same run and invalidates stale replies on selection changes', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-a';
+  let calls = 0;
+  ui.context.fetch = () => {calls++; return new Promise(() => {});};
+  await ui.exec('searchRunProximity()');
+  assert.equal(calls, 0);
+  assert.match(ui.element('proximity-status').textContent, /different recording runs/);
+  ui.element('proximity-other').value = 'run-b';
+  let reply;
+  ui.context.fetch = () => new Promise(resolve => {reply = resolve;});
+  const pending = ui.exec('searchRunProximity()');
+  ui.element('proximity-other').value = 'run-c';
+  ui.element('proximity-other').events.change();
+  reply({ok: true, json: async () => ({pairs: [{a: point(0), b: point(1)}], scanned: 1,
+    next_cursor: null, candidate_limited: false})});
+  await pending;
+  assert.equal(ui.element('proximity-results').children.length, 0);
+  assert.match(ui.element('proximity-status').textContent, /Choose two recording runs/);
+});
+
+test('cross-run query uses History bounds only when explicitly enabled', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  ui.element('proximity-radius').value = '50';
+  ui.element('proximity-window').value = '60';
+  const requests = [];
+  ui.context.fetch = async url => {
+    requests.push(url);
+    return {ok: true, json: async () => ({pairs: [], scanned: 0, next_cursor: null,
+      candidate_limited: false})};
+  };
+  await ui.exec('searchRunProximity()');
+  assert.equal(requests[0].includes('from='), false);
+  ui.element('proximity-interval').checked = true;
+  ui.element('from').value = '2026-11-04T10:00:00';
+  ui.element('to').value = '2026-11-04T09:00:00';
+  await ui.exec('searchRunProximity()');
+  assert.equal(requests.length, 1);
+  assert.match(ui.element('proximity-status').textContent, /From must precede To/);
+  ui.element('to').value = '2026-11-04T12:00:00';
+  await ui.exec('searchRunProximity()');
+  assert.match(requests[1], /from=/);
+  assert.match(requests[1], /to=/);
+});
+
+test('exactly coincident cross-run fixes are displayed as one labeled map symbol', () => {
+  const ui = viewer();
+  const a = {...point(0), track_id: 'run-a'};
+  const b = {...point(0), track_id: 'run-b'};
+  ui.context.fixturePair = {a, b};
+  ui.exec('showRunWitness(fixturePair)');
+  assert.equal(ui.exec('proximityLayer.layers.length'), 1);
+  const pin = ui.exec('proximityLayer.layers[0]');
+  assert.match(pin.tooltip.textContent, /run-a.*run-b/);
+  assert.equal(pin.type, 'circle');
+});
+
+
+test('comparison suggestions include unfiltered runs and allow explicit older run IDs', () => {
+  const ui = viewer();
+  ui.render([], 'history', 'focused');
+  ui.context.browseSuggestions = [
+    {track_id: 'focused', first: point(0).time, last: point(0).time},
+    {track_id: 'same-filter', first: point(0).time, last: point(1).time}
+  ];
+  ui.context.otherSuggestions = [
+    {track_id: 'other-source', first: point(0).time, last: point(1).time}
+  ];
+  ui.exec('historyRunList = browseSuggestions; historyLoaded = true; catalogue = otherSuggestions; updateProximityChoices()');
+  assert.equal(ui.element('proximity-known-runs').children.length, 2);
+  ui.element('proximity-other').value = 'old-run-not-in-catalogue';
+  ui.exec('updateProximityChoices()');
+  assert.equal(ui.element('proximity-other').value, 'old-run-not-in-catalogue');
+  ui.exec('selectedTrack = "old-run-not-in-catalogue"; updateProximityChoices()');
+  assert.notEqual(ui.element('proximity-other').value, 'old-run-not-in-catalogue');
+});
+
+test('older comparison pages respect the cumulative display limit', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  ui.exec('proximityCount = 95; proximityCursor = "1800000000000:100"');
+  let request;
+  ui.context.fetch = async url => {
+    request = url;
+    return {ok: true, json: async () => ({pairs: Array.from({length: 5}, () => ({
+      a: {...point(0), track_id: 'run-a'}, b: {...point(1), track_id: 'run-b'},
+      identity_kind: 'channel', distance_m: 20, receipt_delta_ms: 1000
+    })), scanned: 5, next_cursor: '1800000000000:90', candidate_limited: false})};
+  };
+  await ui.exec('searchRunProximity(true)');
+  assert.equal(new URL('http://localhost' + request).searchParams.get('limit'), '5');
+  assert.equal(ui.exec('proximityCount'), 100);
+  assert.equal(ui.element('proximity-next').hidden, true);
+});

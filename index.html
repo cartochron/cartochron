@@ -99,6 +99,7 @@
       <button id="more" type="button" hidden>Load more</button>
       <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Tracks <span id="layer-count">1 visible</span></button>
       <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">Inspect place</button>
+      <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Across places</button>
       <span id="compare-status" aria-live="polite"></span>
       <span id="page-status" aria-live="polite"></span>
     </div>
@@ -146,6 +147,28 @@
         <ol id="place-db-results" aria-label="Database-wide recorded observations near selected place"></ol>
       </details>
       <small>Recorded proximity does not establish presence between fixes or intent. Searches are paged, not snapshots.</small>
+    </div>
+    <div id="proximity-panel" hidden>
+      <div class="controls">
+        <strong>Across places · two recorded runs</strong>
+        <label>Other run ID <input id="proximity-other" list="proximity-known-runs" autocomplete="off" placeholder="Choose or type run ID" aria-label="Second recording run"></label>
+        <datalist id="proximity-known-runs"></datalist>
+        <label>Distance <select id="proximity-radius" aria-label="Maximum reported-coordinate separation">
+          <option value="50">50 m</option><option value="100" selected>100 m</option>
+          <option value="250">250 m</option><option value="500">500 m</option>
+          <option value="1000">1000 m</option>
+        </select></label>
+        <label>Receipt window <select id="proximity-window" aria-label="Maximum receipt-time difference">
+          <option value="60">1 min</option><option value="300" selected>5 min</option>
+          <option value="900">15 min</option>
+        </select></label>
+        <label><input id="proximity-interval" type="checkbox">Use History From/To</label>
+        <button id="proximity-search" type="button">Find observation pairs</button>
+        <button id="proximity-next" type="button" hidden>Older candidate page</button>
+      </div>
+      <p id="proximity-status" role="status">Choose a second recorded run; search does not depend on loaded map points.</p>
+      <ol id="proximity-results" aria-label="Cross-run spatial and temporal observation pairs"></ol>
+      <small>Each row is an anchor fix and one nearby fix from the other run, compared by receiver receipt time. Click Map pair to see the two fixes without connecting them. Results are not meetings, visits, continuous presence or verified devices. Incomplete pages and candidate caps are reported.</small>
     </div>
   </header>
   <main id="map" aria-label="GPS observation map"></main>

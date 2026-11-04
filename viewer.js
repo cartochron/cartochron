@@ -26,6 +26,13 @@ const overlayLayers = new Map();
 const timeLayer = L.layerGroup().addTo(map);
 const placeLayer = L.layerGroup().addTo(map);
 const monitorLayer = L.layerGroup().addTo(map);
+const proximityLayer = L.layerGroup().addTo(map);
+let proximityRevision = 0;
+let proximityCursor = null;
+let proximityCount = 0;
+let proximityScanned = 0;
+let proximityLimited = false;
+const MAX_PROXIMITY_DISPLAY = 100;
 let placeSelection = null;
 let placeSearchRevision = 0;
 let placeSearchCursor = null;
@@ -149,6 +156,7 @@ function updateSelector() {
     select.value = selectedTrack;
     select.title = 'Exact recorded runs; choose a channel/source filter or load older recordings';
   }
+  updateProximityChoices();
 }
 function updateHistoryFilter() {
   const select = $('history-filter');
@@ -176,6 +184,134 @@ function updateHistoryFilter() {
     ...options.slice(1).map(item => new Option(item.text, item.value)));
   placeScope.value = options.some(item => item.value === previous) ? previous : '';
   if (previous && placeScope.value !== previous) resetDatabasePlaceSearch();
+}
+
+function updateProximityChoices() {
+  // Suggestions do not restrict the search: an older run ID can be entered
+  // explicitly, even when the History list is filtered to one source.
+  const input = $('proximity-other');
+  const previous = input.value;
+  const seen = new Set();
+  const choices = [...historyRunList, ...catalogue].filter(item => {
+    if (item.track_id === selectedTrack || seen.has(item.track_id)) return false;
+    seen.add(item.track_id);
+    return true;
+  });
+  $('proximity-known-runs').replaceChildren(...choices.map(item =>
+    new Option(runLabel(item), item.track_id)));
+  if (!previous || previous === selectedTrack) input.value = choices[0]?.track_id || '';
+  $('proximity-search').disabled = !selectedTrack || !input.value;
+}
+
+function resetRunProximity() {
+  proximityRevision++;
+  proximityCursor = null;
+  proximityCount = 0;
+  proximityScanned = 0;
+  proximityLimited = false;
+  proximityLayer.clearLayers();
+  $('proximity-results').replaceChildren();
+  $('proximity-next').hidden = true;
+  $('proximity-search').disabled = !selectedTrack || !$('proximity-other').value;
+  $('proximity-status').textContent = 'Choose two recording runs and search their stored observations.';
+}
+
+function showRunWitness(pair) {
+  // Two reported fixes, never a line suggesting movement or an encounter.
+  proximityLayer.clearLayers();
+  const locations = new Map();
+  for (const [side, point] of [['A', pair.a], ['B', pair.b]]) {
+    const key = `${point.lat},${point.lon}`;
+    if (!locations.has(key)) locations.set(key, []);
+    locations.get(key).push({side, point});
+  }
+  for (const entries of locations.values()) {
+    const first = entries[0].point;
+    const label = document.createElement('span');
+    label.textContent = entries.map(({side, point}) =>
+      `${side}: ${point.track_id} / fix ${point.id} · ${localTime(point.time)} · ${fixDetails(point)}`)
+      .join(' | ');
+    L.circleMarker([first.lat, first.lon], {
+      radius: 8, color: '#edf2f5', weight: 2,
+      fillColor: entries.length > 1 ? '#f8b449' : entries[0].side === 'A' ? '#57b9ef' : '#8724d5',
+      fillOpacity: 0.95
+    }).bindTooltip(label).on('click', () => L.popup()
+      .setLatLng([first.lat, first.lon]).setContent(label).openOn(map)).addTo(proximityLayer);
+  }
+  fitObservations([pair.a, pair.b]);
+}
+
+async function searchRunProximity(more = false) {
+  if (mode !== 'history' || $('proximity-panel').hidden) return;
+  if (more && (!proximityCursor || proximityCount >= MAX_PROXIMITY_DISPLAY)) return;
+  const a = selectedTrack, b = $('proximity-other').value;
+  if (!a || !b || a === b) {
+    $('proximity-status').textContent = 'Select two different recording runs.';
+    return;
+  }
+  const query = new URLSearchParams({track_id: a, other_track_id: b,
+    radius_m: $('proximity-radius').value, window_s: $('proximity-window').value,
+    limit: String(Math.min(20, MAX_PROXIMITY_DISPLAY - (more ? proximityCount : 0)))});
+  try {
+    if ($('proximity-interval').checked) {
+      const from = placeReceiptFilter('from', 'From');
+      const to = placeReceiptFilter('to', 'To');
+      if (from && to && from >= to) throw new Error('From must precede To');
+      if (from) query.set('from', from);
+      if (to) query.set('to', to);
+    }
+  } catch (error) {
+    $('proximity-status').textContent = 'Invalid receipt-time interval: ' + error.message;
+    return;
+  }
+  if (more) query.set('before', proximityCursor);
+  else resetRunProximity();
+  const token = ++proximityRevision;
+  $('proximity-search').disabled = true;
+  $('proximity-next').hidden = true;
+  $('proximity-status').textContent = 'Comparing stored observations…';
+  try {
+    const result = await getJSON('/api/proximity?' + query);
+    if (token !== proximityRevision || mode !== 'history') return;
+    proximityScanned += result.scanned;
+    proximityLimited ||= result.candidate_limited;
+    proximityCount += result.pairs.length;
+    proximityCursor = result.next_cursor;
+    for (const pair of result.pairs) {
+      const li = document.createElement('li');
+      const details = document.createElement('span');
+      const kind = pair.identity_kind === 'source'
+        ? 'Different enrolled source claims' : 'Different channel claims only';
+      const name = point => point.channel_label || point.source_label
+        || point.channel_id || point.source_id || 'Unattributed';
+      details.textContent = `${kind}: ${name(pair.a)} (${pair.a.track_id} / fix ${pair.a.id}) and `
+        + `${name(pair.b)} (${pair.b.track_id} / fix ${pair.b.id})`
+        + ` · received ${localTime(pair.a.time)} / ${localTime(pair.b.time)}`
+        + ` · Δt ${(pair.receipt_delta_ms / 1000).toFixed(1)}s`
+        + ` · reported positions ${pair.distance_m} m apart`
+        + ` · reported accuracy ${pair.a.accuracy_m ?? 'unknown'} m / ${pair.b.accuracy_m ?? 'unknown'} m`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Map pair';
+      button.addEventListener('click', () => showRunWitness(pair));
+      li.appendChild(details);
+      li.appendChild(button);
+      $('proximity-results').appendChild(li);
+    }
+    const capped = proximityCount >= MAX_PROXIMITY_DISPLAY;
+    $('proximity-next').hidden = !proximityCursor || capped;
+    $('proximity-status').textContent = `${proximityCount} candidate pair${proximityCount === 1 ? '' : 's'} from `
+      + `${proximityScanned} examined anchor fixes` + (proximityCursor
+        ? '; older anchors remain unexamined' : '; anchor search reached its end')
+      + (proximityLimited ? '; dense time windows were capped: matches may be missing' : '')
+      + (capped ? '; display limit reached' : '')
+      + '. One witness per anchor, not exhaustive pair enumeration; no inference of encounters.';
+  } catch (error) {
+    if (token === proximityRevision)
+      $('proximity-status').textContent = 'Cross-run comparison unavailable: ' + error.message;
+  } finally {
+    if (token === proximityRevision) $('proximity-search').disabled = false;
+  }
 }
 
 function monitorPositions() {
@@ -360,6 +496,7 @@ function clearView() {
   if (mode !== 'live') monitorLayer.clearLayers();
   placeSelection = null;
   resetDatabasePlaceSearch();
+  resetRunProximity();
   $('place-results').replaceChildren();
   $('place-status').textContent = 'Click a location on the map to inspect loaded observations.';
   $('time-panel').hidden = true;
@@ -603,6 +740,9 @@ function setMode(next) {
   if (mode !== 'history') {
     $('layers-panel').hidden = true;
     $('place-panel').hidden = true;
+    $('proximity-panel').hidden = true;
+    proximityLayer.clearLayers();
+    $('proximity-toggle').setAttribute('aria-expanded', 'false');
     $('layers-toggle').setAttribute('aria-expanded', 'false');
     $('place-toggle').setAttribute('aria-expanded', 'false');
   }
@@ -1207,6 +1347,18 @@ for (const id of ['place-scope', 'place-from', 'place-to'])
 $('place-search').addEventListener('click', () => searchRecordedPlace());
 $('place-next').addEventListener('click', () => searchRecordedPlace(true));
 $('place-proximity-window').addEventListener('change', renderPlaceProximity);
+$('proximity-toggle').addEventListener('click', () => {
+  $('proximity-panel').hidden = !$('proximity-panel').hidden;
+  $('proximity-toggle').setAttribute('aria-expanded', String(!$('proximity-panel').hidden));
+  updateProximityChoices();
+  if ($('proximity-panel').hidden) resetRunProximity();
+});
+$('proximity-other').addEventListener('change', resetRunProximity);
+$('proximity-other').addEventListener('input', resetRunProximity);
+for (const id of ['proximity-radius', 'proximity-window', 'proximity-interval', 'from', 'to'])
+  $(id).addEventListener('change', resetRunProximity);
+$('proximity-search').addEventListener('click', () => searchRunProximity());
+$('proximity-next').addEventListener('click', () => searchRunProximity(true));
 map.on('click', event => {
   if (mode !== 'history' || $('place-panel').hidden) return;
   placeSelection = {lat: event.latlng.lat, lon: event.latlng.lng};
