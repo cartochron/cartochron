@@ -27,6 +27,10 @@ const timeLayer = L.layerGroup().addTo(map);
 const placeLayer = L.layerGroup().addTo(map);
 const monitorLayer = L.layerGroup().addTo(map);
 let placeSelection = null;
+let placeSearchRevision = 0;
+let placeSearchCursor = null;
+let placeSearchCount = 0;
+const MAX_PLACE_DISPLAY = 500;
 
 let catalogue = [];
 let monitorCatalogue = [];
@@ -344,6 +348,7 @@ function clearView() {
   placeLayer.clearLayers();
   if (mode !== 'live') monitorLayer.clearLayers();
   placeSelection = null;
+  resetDatabasePlaceSearch();
   $('place-results').replaceChildren();
   $('place-status').textContent = 'Click a location on the map to inspect loaded observations.';
   $('time-panel').hidden = true;
@@ -752,6 +757,65 @@ function distanceMeters(a, b) {
   return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+function resetDatabasePlaceSearch() {
+  // Invalidate pending results whenever the chosen location or view changes.
+  placeSearchRevision++;
+  placeSearchCursor = null;
+  placeSearchCount = 0;
+  $('place-db-results').replaceChildren();
+  $('place-next').hidden = true;
+  $('place-search').disabled = !placeSelection || mode !== 'history';
+  $('place-db-status').textContent = placeSelection
+    ? 'Search recorded history to examine all runs, not just loaded points.'
+    : 'Select a place to search across all recorded runs.';
+}
+
+async function searchRecordedPlace(more = false) {
+  if (!placeSelection || mode !== 'history' || $('place-panel').hidden) return;
+  if (more && !placeSearchCursor) return;
+  const request = ++placeSearchRevision;
+  const query = new URLSearchParams({
+    lat: String(placeSelection.lat), lon: String(placeSelection.lon),
+    radius_m: $('place-radius').value, limit: '50'
+  });
+  if (more) query.set('before', placeSearchCursor);
+  else {
+    placeSearchCursor = null;
+    placeSearchCount = 0;
+    $('place-db-results').replaceChildren();
+  }
+  $('place-search').disabled = true;
+  $('place-next').hidden = true;
+  $('place-db-status').textContent = 'Searching recorded observations…';
+  try {
+    const page = await getJSON('/api/place/observations?' + query);
+    if (request !== placeSearchRevision) return;
+    for (const p of page.points) {
+      const item = document.createElement('li');
+      const name = p.channel_label || p.source_label || p.channel_id || p.source_id || 'Unattributed';
+      item.textContent = `${localTime(p.time)} · ${name} · run ${p.track_id} · `
+        + `${p.distance_m} m · ${fixDetails(p)}`;
+      $('place-db-results').appendChild(item);
+      placeSearchCount++;
+    }
+    placeSearchCursor = page.next_cursor;
+    const moreAvailable = Boolean(page.next_cursor);
+    const capped = placeSearchCount >= MAX_PLACE_DISPLAY;
+    $('place-next').hidden = !moreAvailable || capped;
+    $('place-db-status').textContent = `${placeSearchCount} matching recorded fixes shown, newest ingested first. `
+      + (capped ? 'Display limit reached; no claim of complete coverage.'
+        : moreAvailable ? 'Older candidates remain; this is not a complete search.'
+        : 'Search complete for the selected place at this point in time.')
+      + ' Proximity is not proof of continuous presence.';
+  } catch (error) {
+    if (request === placeSearchRevision)
+      $('place-db-status').textContent = 'Recorded history search failed: ' + error.message;
+  } finally {
+    if (request === placeSearchRevision)
+      $('place-search').disabled = false;
+  }
+}
+
 function updatePlaceInspector() {
   placeLayer.clearLayers();
   if (!placeSelection || mode !== 'history') return;
@@ -958,12 +1022,15 @@ $('time-cursor').addEventListener('input', updateTimeCursor);
 $('place-toggle').addEventListener('click', () => {
   $('place-panel').hidden = !$('place-panel').hidden;
   $('place-toggle').setAttribute('aria-expanded', String(!$('place-panel').hidden));
-  if ($('place-panel').hidden) {placeSelection = null; placeLayer.clearLayers();}
+  if ($('place-panel').hidden) {placeSelection = null; placeLayer.clearLayers(); resetDatabasePlaceSearch();}
 });
-$('place-radius').addEventListener('change', updatePlaceInspector);
+$('place-radius').addEventListener('change', () => {resetDatabasePlaceSearch(); updatePlaceInspector();});
+$('place-search').addEventListener('click', () => searchRecordedPlace());
+$('place-next').addEventListener('click', () => searchRecordedPlace(true));
 map.on('click', event => {
   if (mode !== 'history' || $('place-panel').hidden) return;
   placeSelection = {lat: event.latlng.lat, lon: event.latlng.lng};
+  resetDatabasePlaceSearch();
   updatePlaceInspector();
 });
 refreshTracks();

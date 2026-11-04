@@ -658,3 +658,69 @@ test('Explicit selection focuses a different city once, without future free-came
   ui.exec('updateMonitorCamera()');
   assert.equal(ui.pans.length, 1);
 });
+
+test('recorded place search is explicit, paged and independent of loaded fixes', async () => {
+  const ui = viewer();
+  ui.render([point(0)], 'history', 'selected-run');
+  ui.element('place-panel').hidden = false;
+  ui.element('place-radius').value = '100';
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  assert.equal(ui.element('place-search').disabled, false);
+  assert.equal(ui.element('place-results').children.length, 1); // Loaded view remains intact.
+  const urls = [];
+  ui.context.fetch = async url => {
+    urls.push(url);
+    return {ok: true, json: async () => urls.length === 1 ? {
+      points: [{...point(0), track_id: 'run-elsewhere',
+        channel_id: 'gpsd.a', channel_label: '<img src=x onerror=alert(1)>',
+        distance_m: 10, accuracy_m: 15}], next_cursor: '123'
+    } : {
+      points: [{...point(0), track_id: 'older-run', distance_m: 20}], next_cursor: null
+    }};
+  };
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(ui.element('place-db-results').children.length, 1);
+  assert.match(ui.element('place-db-results').children[0].textContent, /run-elsewhere/);
+  assert.match(ui.element('place-db-results').children[0].textContent, /Reported accuracy 15 m/);
+  assert.equal(ui.element('place-db-results').children[0].innerHTML, undefined);
+  assert.equal(ui.element('place-next').hidden, false);
+  await ui.exec('searchRecordedPlace(true)');
+  assert.match(urls[1], /before=123/);
+  assert.equal(ui.element('place-db-results').children.length, 2);
+  assert.equal(ui.element('place-next').hidden, true);
+  assert.match(ui.element('place-db-status').textContent, /Search complete/);
+  assert.equal(ui.element('place-results').children.length, 1);
+  assert.match(urls[0], /^\/api\/place\/observations\?/);
+});
+
+test('place search does not mistake an empty page for complete coverage', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.element('place-radius').value = '250';
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  ui.context.fetch = async () => ({ok: true, json: async () => ({
+    points: [], scanned: 2000, next_cursor: '19'
+  })});
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(ui.element('place-db-results').children.length, 0);
+  assert.equal(ui.element('place-next').hidden, false);
+  assert.match(ui.element('place-db-status').textContent, /Older candidates remain/);
+});
+
+test('changing the selected place invalidates a pending database response', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.element('place-radius').value = '50';
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  let finish;
+  ui.context.fetch = () => new Promise(resolve => {finish = resolve;});
+  const pending = ui.exec('searchRecordedPlace()');
+  ui.map.events.click({latlng: {lat: 48, lng: 29}});
+  finish({ok: true, json: async () => ({points: [{...point(0), track_id: 'old'}], next_cursor: null})});
+  await pending;
+  assert.equal(ui.element('place-db-results').children.length, 0);
+  assert.match(ui.element('place-db-status').textContent, /Search recorded history/);
+  assert.equal(ui.element('place-search').disabled, false);
+});

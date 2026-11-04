@@ -118,7 +118,13 @@
         <span id="place-status">Click a location on the map to inspect loaded observations.</span>
       </div>
       <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
-      <small>Recorded proximity does not establish presence between fixes or intent.</small>
+      <div class="controls">
+        <button id="place-search" type="button" disabled>Search recorded history</button>
+        <button id="place-next" type="button" hidden>Older search page</button>
+        <span id="place-db-status" role="status">Select a place to search across all recorded runs.</span>
+      </div>
+      <ol id="place-db-results" aria-label="Database-wide recorded observations near selected place"></ol>
+      <small>Recorded proximity does not establish presence between fixes or intent. Searches are paged, not snapshots.</small>
     </div>
   </header>
   <main id="map" aria-label="GPS observation map"></main>
