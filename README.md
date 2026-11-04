@@ -5,8 +5,9 @@ research. The Python receiver accepts observations over HTTP and stores them
 in SQLite; an optional Metasploit Android adapter supplies reported positions.
 The Leaflet viewer lets you follow individual recording runs, inspect history,
 compare runs, and see where observation gaps or possible positioning jumps
-make movement uncertain. Live view distinguishes recently received reports from
-stale stored data; it cannot verify whether a producer is connected.
+make movement uncertain. Monitor follows the newest run for each configured
+channel or enrolled source; History retains separate recording runs. Receipt
+freshness cannot verify whether a producer is connected.
 
 **Cartochron records observations, not verified movements.** Android
 Meterpreter `geolocate` returns a last-known network-provider location; its
@@ -76,7 +77,7 @@ routes. `demo.py` refuses to overwrite an existing database. Use a fresh
 filename for each rehearsal. See [the synthetic walkthrough](docs/walkthrough.md)
 and the illustrated `/help` page for map controls. `replay.py` can also feed
 synthetic observations into a separate, unauthenticated **loopback-only**
-receiver to rehearse Live mode.
+receiver to rehearse Monitor mode.
 
 ## Testing
 
@@ -95,7 +96,7 @@ does not use or modify your normal observations.
 
 - [Recording and external Metasploit adapter](docs/recording.md): run IDs, source identities,
   startup, logging and live-device field checks
-- [Map walkthrough and synthetic demo](docs/walkthrough.md): Live, History,
+- [Map walkthrough and synthetic demo](docs/walkthrough.md): Monitor, History,
   gaps, comparisons, time and place inspection
 - [Operations](docs/operations.md): Compose and native deployment,
   authentication, backups, restore, VPS HTTPS, troubleshooting

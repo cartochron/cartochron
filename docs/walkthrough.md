@@ -15,20 +15,20 @@ belong in the repository guides, not the in-app Help page. Help and its images u
 same authentication requirements as the map.
 
 
-The track selector lists the 100 most recently updated runs with their
-source labels (or “unassigned” for older and anonymous records) (the catalogue
-reports when additional runs exist). When the page opens, it initially selects
-the most recently updated run. The selection remains pinned even if another
-producer starts recording.
+In **Monitor** (formerly Live), the selector shows one entry per configured
+acquisition channel, or per enrolled source when no channel was reported. Its
+selected entry follows the most recently ingested recording run automatically
+when a collector restarts; it never combines their observations into one
+recording. The latest **unattributed** run is available as a fallback, without
+treating older unattributed runs as the same device. Channel names are
+operator-configured assertions, not verified device identities.
 
-- **Live** polls up to 1,000 recent observations for the selected run, follows
-  its last received position, and shows its receipt timestamp. **Recent
-  receipts** means the server received a fix within two minutes, not that the
-  phone is online. After two minutes without a receipt, the UI shows **No
-  recent receipts** and dims the route; stored fixes remain available. The
-  selector also labels the age of each listed run. A stopped producer can
-  still be selected in Live mode; choose History for a fixed interval.
-- **History** lets you set **From** and **To** using the browser's *local*
+- **Monitor** polls up to 1,000 recent observations for the selected identity's
+  current run. **Recent receipts** means the server received a fix within two
+  minutes, not that a phone is online. After two minutes without a receipt,
+  **No recent receipts** dims the route; stored fixes remain available. The
+  selector displays receipt states, not ever-increasing counters.
+- **History** retains separate recording run IDs, independent of Monitor selection. It lists the 100 newest runs; the API can query older known IDs. History lets you set **From** and **To** using the browser's *local*
   clock. Press **Show interval** to query `[from, to)`; the server converts the
   timestamps to UTC. Use **Inspect point** to examine the position and receipt
   time of each displayed observation.

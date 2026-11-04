@@ -36,7 +36,7 @@
     <p class="lede">A guide to what you see, which controls to use, and what the observations can—and cannot—tell you.</p>
     <nav aria-label="Help topics"><ul>
       <li><a href="#start">Start here</a></li>
-      <li><a href="#live-history">Live &amp; History</a></li>
+      <li><a href="#live-history">Monitor &amp; History</a></li>
       <li><a href="#points">Points &amp; gaps</a></li>
       <li><a href="#compare">Compare tracks</a></li>
       <li><a href="#time">Shared time</a></li>
@@ -47,7 +47,7 @@
 
   <h2 id="start">Start here: what am I looking at?</h2>
   <p>A <strong>fix</strong> is one recorded location observation (latitude, longitude, and time). A <strong>track</strong> groups fixes from one recording run. Each track has an ID. Different IDs do not necessarily mean different people or devices.</p>
-  <p>A <strong>source</strong> is an operator-enrolled observation producer. Its label helps you recognize recordings across restarts, while each run retains its own track ID. A source label is descriptive and does not independently prove which physical device produced a fix. Older recordings may be labeled <em>unassigned</em>.</p>
+  <p>A <strong>source</strong> is an operator-enrolled observation producer; a <strong>channel</strong> is an operator-configured acquisition input (for example, one GPSD UDP port). Neither name proves which physical device sent a report. A <strong>run</strong> is one recording session, with a separate ID. Historical runs are never joined merely because they share a channel or source.</p>
   <p>The map joins nearby-in-time fixes into visible route segments, except across unusually large apparent receipt-time jumps (reviewed as uncertain, not automatically rejected). A line is a convenient way to read a sequence; it <strong>does not show every step taken</strong> between the recorded positions.</p>
   <ul class="legend" aria-label="Map symbol legend">
     <li><span class="key main"></span>Focused track</li>
@@ -57,13 +57,14 @@
   </ul>
   <div class="panel"><strong>What does the time mean?</strong> The displayed time is when Cartochron's server <em>received</em> the observation, shown in your browser's local time zone. It may differ from the moment the GPS fix was obtained. The Metasploit adapter reads Android's cached last-known network-provider location, with unknown acquisition time and accuracy. GPSD may report a measurement timestamp and horizontal error estimate, neither independently verified by Cartochron.</div>
 
-  <h2 id="live-history">1. Follow a track or look into the past</h2>
+  <h2 id="live-history">1. Monitor a source or inspect a run</h2>
   <ol class="steps">
-    <li>Choose a recording ID from <strong>Track</strong> at the top right.</li>
-    <li>Choose <strong>Live</strong> to refresh the selected run automatically. It shows up to 1,000 latest stored observations, even after the producer stops. <strong>Recent receipts</strong> means data arrived within the last two minutes; it does not prove a connection is active. <strong>No recent receipts</strong> means the last observation is older, so Cartochron dims the route and last point. These are receipt-age hints, not device-online or movement claims.</li>
-    <li>Choose <strong>History</strong> to inspect a fixed period without the view changing as new observations arrive.</li>
-    <li>Adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Dates entered here are in your local time zone.</li>
+    <li>In <strong>Monitor</strong> (the former Live view), choose a configured channel or enrolled source using <strong>Source / channel</strong>. The map follows that identity's newest recording run, even after the collector starts a new run. It does <em>not</em> join the runs' paths.</li>
+    <li><strong>Recent receipts</strong> means Cartochron received an observation within two minutes, not that the device is connected. <strong>No recent receipts</strong> means the last observation is older; the route becomes muted. A source without channel metadata appears by its enrollment, while unattributed legacy recordings appear only as the <em>newest unattributed run</em> here—other runs remain in History.</li>
+    <li>Switch to <strong>History</strong> and choose a <strong>Recording run</strong> to inspect its own fixed period. History is a run viewer, not a combined channel trajectory.</li>
+    <li>Adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Dates are entered in your browser's local time zone.</li>
   </ol>
+  <p>Monitor and History share the map but remember their selections separately. The History run selector currently lists the 100 most recently updated runs; older observations remain stored, and the API supports queries by known run ID. More complete run discovery is future work.</p>
   <p>The status text tells you how many fixes are shown. If you see <strong>Load more</strong>, additional observations are available; if you see <strong>interval complete</strong>, all observations in the requested interval have been loaded for the focused track. The viewer limits each displayed run to 5,000 fixes; narrow the interval when a result is marked partial.</p>
   <p><strong>Why did the map zoom very far out?</strong> It fits the coordinates returned for the selected run. A faraway or inaccurate fix may enlarge the bounds; use the map zoom controls and inspect the reported coordinates before interpreting it.</p>
 
@@ -77,7 +78,7 @@
 
   <h2 id="compare">3. Put several tracks on the map</h2>
   <ol class="steps">
-    <li>In <strong>History</strong>, pick the focused track using <strong>Track</strong>.</li>
+    <li>In <strong>History</strong>, pick the focused recording using <strong>Recording run</strong>.</li>
     <li>Open <strong>Tracks</strong> and check up to three additional runs. The focused run stays blue; the others get contrasting outlined colors.</li>
     <li>For <strong>Comparison time</strong>, choose <strong>Entire runs (spatial)</strong> to see each run's loaded history even if they occurred at different times. Choose <strong>Same interval</strong> to limit the other runs to the focused run's From/To window.</li>
     <li>Click a colored dot or line to read the time and coordinates of a comparison fix.</li>

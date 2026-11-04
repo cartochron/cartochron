@@ -31,6 +31,14 @@ directly; v1/v2/v3 databases migrate without guessing old channel identities.
 Legacy observations retain NULL for missing measurement metadata. Back up
 the database before upgrading; earlier Cartochron versions cannot open v4.
 
+A Monitor identity is a **read-only grouping**, not a new owner or a merged
+recording: choose `channel_id` when present, otherwise the enrolled `source_id`.
+If neither exists, show only the latest unattributed run as a fallback; never
+infer identity from a shared prefix in `track_id`. Monitor selects the latest
+*ingested* run for each identity, while History preserves every separate run.
+Different source assertions on a channel remain visible as an ambiguity;
+changing the displayed source label does not rewrite history.
+
 The browser may draw connecting lines, but it cannot infer movement during gaps.
 Time queries use `[from, to)` on the server's receipt clock. An old run migrated
 from v1 stays unassigned; no attempt is made to infer device identity.

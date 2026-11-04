@@ -36,6 +36,7 @@ The API exposes these relevant GET operations:
 | `GET /api/points` | Original `{"points": [...]}` response, from the most recently updated run |
 | `GET /api/points/recent?track_id=...` | Up to 1,000 newest points for an explicitly selected run (used by Live mode) |
 | `GET /api/tracks` | Up to 100 run summaries, including nullable `channel_id`, `source_id` and descriptive `source_label` |
+| `GET /api/monitor` | Up to 100 grouped Monitor entries (latest run per channel or otherwise source, plus newest unattributed run) |
 | `GET /api/sources` | Up to 100 enrolled source summaries (protected by the same HTTP authentication) |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
 
@@ -74,6 +75,21 @@ interval again with `cursor=<next_cursor>` to fetch the next page. Stop when
 `next_cursor` is `null`. The cursor is not a database snapshot: if new
 observations arrive during paging, the result set can change. Large histories
 are never silently truncated without reporting that another page exists.
+
+The read-only `/api/monitor` response has `entries` and a `truncated`
+flag. Entries carry `kind` (`channel`, `source`, or `unattributed`), `id`,
+`track_id` (the newest *ingested* run for that identity), `last` (receipt
+of that run's latest inserted observation), `runs` (number of separate runs),
+nullable `channel_id`, `source_id`, `source_label`, and `mixed_sources`. The
+latter warns if different runs on one channel asserted different enrolled
+source IDs. The latest source label must not be promoted to a claim about
+all historical runs. Unattributed entries are **not** merged into a device:
+only the newest unassociated run is surfaced in Monitor, and the `runs`
+count signals the number of distinct unattributed runs still in History.
+Enrollment without recorded observations is listed by `/api/sources`, not
+`/api/monitor`. Both endpoints use the same configured HTTP authentication.
+Monitor summaries are bounded and may be truncated; they are not full-history
+exports or evidence of a current connection.
 
 The Leaflet page uses these APIs for track selection and historical navigation.
 The unfiltered endpoint remains available for older clients and still follows
