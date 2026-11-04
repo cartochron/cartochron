@@ -14,10 +14,20 @@ still returns the original `lat`, `lon`, and `time` fields on successful POST.
 `time` is the server's **receipt time**, not necessarily the moment when a
 GPS device obtained a fix. The database retains integer UTC milliseconds.
 Producers may supply optional `measured_ms` (Unix epoch milliseconds),
-`provider` and `accuracy_m` (horizontal accuracy in metres). Read responses and
-POST receipts expose these only when supplied (`measured_time` is RFC3339).
-They are unverified producer reports, not substitute receipt timestamps.
-The current Meterpreter adapter supplies none of these metadata fields.
+`provider` and `accuracy_m` (horizontal accuracy in metres). A producer may
+also set `channel_id` (1–64 ASCII letters, digits, dots, underscores and
+hyphens, starting with a letter or digit). This identifies a configured
+acquisition input, not an authenticated device or a permanent source. It is
+attached to the entire run and cannot be changed later; absent means unknown.
+POST success with a channel echoes `channel_id` so an adapter can verify the
+receiver preserved it. The run catalogue includes nullable `channel_id`;
+point history does not repeat run-level metadata. Existing requests without a
+channel retain unchanged receipt response bodies. Measurement metadata is
+included in point responses only when reported (`measured_time` is RFC3339).
+Such values are unverified producer reports, not substitute receipt timestamps.
+The current Meterpreter adapter supplies none of the measurement metadata
+fields and may omit `channel_id`. The GPSD adapter can supply a configured
+`channel_id` independently of whether a source has been enrolled.
 
 The API exposes these relevant GET operations:
 
@@ -25,7 +35,7 @@ The API exposes these relevant GET operations:
 | --- | --- |
 | `GET /api/points` | Original `{"points": [...]}` response, from the most recently updated run |
 | `GET /api/points/recent?track_id=...` | Up to 1,000 newest points for an explicitly selected run (used by Live mode) |
-| `GET /api/tracks` | Up to 100 run summaries, including `source_id` and descriptive `source_label` when enrolled |
+| `GET /api/tracks` | Up to 100 run summaries, including nullable `channel_id`, `source_id` and descriptive `source_label` |
 | `GET /api/sources` | Up to 100 enrolled source summaries (protected by the same HTTP authentication) |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
 

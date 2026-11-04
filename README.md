@@ -33,6 +33,13 @@ install -d -m 700 "$HOME/.local/share/cartochron"
 python3 map_server.py --db "$HOME/.local/share/cartochron/observations.sqlite3"
 ```
 
+The independent [Cartochron GPSD adapter](https://github.com/cartochron/cartochron-gpsd)
+can also send reports. Its registry's channel identifiers persist across
+collector restarts without implying verified phone identity. Cartochron stores
+these optional per-run IDs from schema v4 onward; previously recorded runs
+remain unattributed to a channel. **Back up persistent SQLite data before
+upgrading from schema v3** and upgrade the receiver before the GPSD adapter.
+
 The optional [Cartochron Metasploit adapter](https://github.com/cartochron/cartochron-metasploit)
 is a **separate repository**, with its own `make install` and Ruby tests.
 The [recording guide](docs/recording.md) explains background jobs, source

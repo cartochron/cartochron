@@ -1,6 +1,6 @@
 # Cartochron data contracts
 
-## Implemented: location observation protocol (v3 database)
+## Implemented: location observation protocol (v4 database)
 
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
@@ -11,7 +11,11 @@ may be cached and cannot be treated as independent measurements.
 
 A source is enrolled locally and has an opaque persistent ID plus a descriptive
 label. A run has one stable association with exactly one source or with no
-source. Conflicting assertions fail, rather than modifying earlier records.
+source. A producer may also supply an optional `channel_id`: a stable, configured
+acquisition-input identifier, independent of a source or recording run. The
+channel belongs to the run, not individual measurements. Neither `channel_id`
+nor a source ID authenticates a physical device. Both are immutable for an
+existing run; conflicting assertions fail instead of rewriting earlier records.
 `source_id` is an identifier, **not proof of ownership or an API credential**.
 A future multi-tenant deployment must authenticate producers and bind their
 identities server-side before authorizing writes to a source.
@@ -22,7 +26,10 @@ opaque provider name), and `accuracy_m` (horizontal accuracy in metres).
 These are producer assertions, not independently verified measurements. All
 three fields are absent for legacy and current Meterpreter observations; missing
 values must never be replaced with server receipt time or guessed accuracy.
-Schema v3 migrates older databases, preserving NULL metadata for past fixes.
+Schema v4 adds nullable run-level `channel_id`. New databases create v4
+directly; v1/v2/v3 databases migrate without guessing old channel identities.
+Legacy observations retain NULL for missing measurement metadata. Back up
+the database before upgrading; earlier Cartochron versions cannot open v4.
 
 The browser may draw connecting lines, but it cannot infer movement during gaps.
 Time queries use `[from, to)` on the server's receipt clock. An old run migrated
