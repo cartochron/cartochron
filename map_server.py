@@ -26,7 +26,9 @@ _HTML = (_ROOT / "index.html").read_bytes()
 _VIEWER_JS = (_ROOT / "viewer.js").read_bytes()
 _MANUAL = (_ROOT / "manual.html").read_bytes()
 _HELP_IMAGES = {
-    "/docs/images/tracks.png", "/docs/images/gaps.png"
+    "/docs/images/tracks.png", "/docs/images/gaps.png",
+    "/docs/images/tour-monitor.png", "/docs/images/tour-gaps.png",
+    "/docs/images/tour-place.png", "/docs/images/tour-witness.png"
 }
 _LEAFLET_FILES = {
     "/vendor/leaflet/leaflet.css": "text/css; charset=utf-8",

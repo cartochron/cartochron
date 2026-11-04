@@ -154,7 +154,11 @@ class MapServerTest(unittest.TestCase):
     def test_help_and_screenshots_use_same_authority_boundary(self):
         for path, mime in (("/help", "text/html"),
                            ("/docs/images/tracks.png", "image/png"),
-                           ("/docs/images/gaps.png", "image/png")):
+                           ("/docs/images/gaps.png", "image/png"),
+                           ("/docs/images/tour-monitor.png", "image/png"),
+                           ("/docs/images/tour-gaps.png", "image/png"),
+                           ("/docs/images/tour-place.png", "image/png"),
+                           ("/docs/images/tour-witness.png", "image/png")):
             status, headers, body = self.request("GET", path)
             self.assertEqual(status, 200)
             self.assertIn(mime, headers["Content-Type"])
@@ -164,7 +168,9 @@ class MapServerTest(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
         self.start_server(authorization="Basic YTpi")
-        for path in ("/help", "/docs/images/tracks.png", "/docs/images/gaps.png"):
+        for path in ("/help", "/docs/images/tracks.png", "/docs/images/gaps.png",
+                     "/docs/images/tour-monitor.png", "/docs/images/tour-gaps.png",
+                     "/docs/images/tour-place.png", "/docs/images/tour-witness.png"):
             self.assertEqual(self.request("GET", path)[0], 401)
             self.assertEqual(self.request("GET", path,
                              headers={"Authorization": "Basic YTpi"})[0], 200)
@@ -174,13 +180,16 @@ class MapServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         page = body.decode("utf-8")
         for topic in ("Monitor", "History", "Inspect point", "Shared time",
-                      "Inspect place", "Comparison time", "missing time"):
+                      "Investigate place", "Comparison time", "missing time"):
             with self.subTest(topic=topic):
                 self.assertIn(topic, page)
-        for command in ("make check", "python3 demo.py", "msfconsole", "run -j"):
+        for command in ("make check", "msfconsole", "run -j"):
             self.assertNotIn(command, page)
-        for illustration in ("/docs/images/tracks.png", "/docs/images/gaps.png"):
+        for illustration in ("/docs/images/tour-monitor.png", "/docs/images/tour-gaps.png",
+                             "/docs/images/tour-place.png", "/docs/images/tour-witness.png"):
             self.assertIn(illustration, page)
+        self.assertIn("make demo", page)
+        self.assertIn("synthetic", page)
 
     def test_recent_track_query_stays_on_selected_run(self):
         for lat, track in ((47, "A"), (48, "B"), (49, "A"), (50, "B")):

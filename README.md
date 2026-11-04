@@ -68,35 +68,24 @@ See [receiver operations](docs/operations.md) for backups, restore, HTTPS
 proxy setup, service lifecycle, and common failures. Do not expose Basic
 authentication on an unencrypted public connection.
 
-## Explore without a device
+## Explore the full investigation tour
 
 ```sh
-python3 demo.py --db /tmp/cartochron-demo.sqlite3
-python3 map_server.py --db /tmp/cartochron-demo.sqlite3
+make demo
 ```
 
-Open the map, select a demo run, and use History to inspect gaps or compare
-routes. `demo.py` refuses to overwrite an existing database. Use a fresh
-filename for each rehearsal. See [the synthetic walkthrough](docs/walkthrough.md)
-and the illustrated `/help` page for map controls. `replay.py` can also feed
-synthetic observations into a separate, unauthenticated **loopback-only**
-receiver to rehearse Monitor mode.
+Open <http://127.0.0.1:8877> to explore an **isolated synthetic map** with
+named acquisition channels, several runs, a gap, stale positions, cross-source
+candidate fixes, paged history, and a saved example evidence annotation.
+Stop it with Ctrl-C; the temporary database is deleted. This does **not**
+modify the normal receiver or any real recordings. The command fetches and
+verifies Leaflet once when the assets are absent. See the in-app **Guide**
+(`/help`) and the [investigation tour](docs/walkthrough.md) for illustrated
+exercises. `python3 demo.py --tour --db /path/to/new.sqlite3` creates a
+persistent demo file without overwriting anything.
 
-For cross-run investigations, History's **Inspect place** keeps the loaded-run
-comparison and provides a separate **Search recorded history** action. The
-latter searches stored observations across runs with explicit pagination,
-receipt-time and source/channel filters, and provenance. Matching-fix groups
-summarize only retrieved results and do not infer visits or dwell times. The place index first arrived in schema v6; the current schema is v7
-with evidence-linked annotations. Back up before upgrading.
-
-## Investigation annotations (post-v0.1)
-
-History → Across places → Inspect timeline can read operator notes attached to
-an exact pair of original fixes. Use the local `annotations.py` command to add
-notes, never the HTTP ingestion credential. Annotations are append-only
-interpretations, not observations, events or verified conclusions. This update
-migrates persistent SQLite history from v6 to v7; **back up before upgrading**.
-See the [handbook](docs/handbook.md#9-record-a-hypothesis-without-altering-observations).
+The original five-run fixture remains available as
+`python3 demo.py --db /path/to/new.sqlite3` for small regression rehearsals.
 
 ## Testing
 

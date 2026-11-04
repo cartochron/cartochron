@@ -8,7 +8,7 @@ analysis tools. Planned capabilities are described separately in
 mistaken for a working control.
 
 For a compact illustrated guide inside the running application, open
-**Help / Manual** (`/help`). For installation commands and disaster recovery,
+**Guide** (`/help`). For installation commands and disaster recovery,
 consult [Operations](operations.md). This handbook is organized around
 *questions an investigator wants to answer*, not around program files.
 
@@ -42,18 +42,40 @@ actually loaded before interpreting a pattern.
 
 ## Part II — Start with safe, reproducible evidence
 
-Use synthetic data first. In a fresh Cartochron checkout:
+Use the **isolated investigation tour** first. In a Cartochron checkout:
 
 ```sh
-make
-python3 demo.py --db /tmp/cartochron-handbook-demo.sqlite3
-python3 map_server.py --db /tmp/cartochron-handbook-demo.sqlite3
+make demo
 ```
 
-Choose a **new** database path each time: the demo refuses to overwrite
-existing records. Open `http://127.0.0.1:8765/`, then **History**. No phone,
-Metasploit session, or GPS hardware is needed. Avoid using real locations in
-examples, issues, or screenshots intended for publication.
+Open <http://127.0.0.1:8877>. This starts a temporary, loopback-only map
+with seven invented recording runs and a saved operator note. Ctrl-C stops
+the demo and deletes its temporary SQLite file; it never modifies your normal
+Cartochron database. The Makefile verifies and installs pinned Leaflet assets
+if they have not yet been installed. A no-fetch alternative after installation
+is `python3 demo.py --tour --serve`.
+
+The tour includes:
+
+| Run | Investigation question |
+| --- | --- |
+| `demo-oneplus-morning` | What do the two gap endpoints actually establish? |
+| `demo-oneplus-evening` | What is the latest separate recording of this source? |
+| `demo-lg-evening` | Are there near-time, near-place reported fixes from another claimed source? |
+| `demo-old-crossing` | Can two paths cross without being contemporaneous? |
+| `demo-vienna-station` | How should Monitor show a distant, stale last fix? |
+| `demo-archive` | What happens when a run requires more than one History page? |
+| `demo-single-fix` | Why does one point have no route line? |
+
+Follow the in-app **Guide** (`/help`), including the four synthetic illustrated
+workflows: Monitor camera, History gaps, Investigate place, and Compare runs
+with the evidence timeline. To retain a demo database for repeated exercises,
+run `python3 demo.py --tour --db /path/to/new-demo.sqlite3`, then start the
+receiver explicitly with `--db` pointed at that new file. The tool refuses to
+overwrite an existing database.
+
+These are **invented coordinates and synthetic receipt times**, not recorded
+movement. Matching reports are candidate evidence, not proof of a meeting.
 
 For the production lifecycle, run the receiver with a private persistent
 SQLite file or its supported Compose deployment. Back up before a schema
@@ -98,7 +120,7 @@ joins older runs or another channel's positions.
 
 ### 2. History: what was recorded, and when?
 
-Switch to History and browse recording runs separately. Filter by stored
+Switch to History and browse recording runs separately. Expand **Tools & filters** for time controls and analysis tools; selecting a tool opens a closable drawer over the map. Filter by stored
 source or channel, page into older runs, then select a time interval.
 Cartochron uses a **half-open interval** `[from, to)` on the *receipt clock*.
 History requests and rendered pages are bounded; a partial result does not

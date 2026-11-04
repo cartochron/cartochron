@@ -35,16 +35,25 @@
     <h1>Understand the Cartochron map</h1>
     <p class="lede">A guide to what you see, which controls to use, and what the observations can—and cannot—tell you.</p>
     <nav aria-label="Help topics"><ul>
+      <li><a href="#tour">Guided demo</a></li>
       <li><a href="#start">Start here</a></li>
       <li><a href="#live-history">Monitor &amp; History</a></li>
       <li><a href="#points">Points &amp; gaps</a></li>
       <li><a href="#compare">Compare tracks</a></li>
       <li><a href="#time">Shared time</a></li>
-      <li><a href="#place">Inspect a place</a></li>
-      <li><a href="#across-places">Compare across places</a></li>
+      <li><a href="#place">Investigate place</a></li>
+      <li><a href="#across-places">Compare runs</a></li>
       <li><a href="#questions">Common questions</a></li>
     </ul></nav>
   </div>
+
+  <h2 id="tour">Explore a complete investigation — no device required</h2>
+  <p>Open a terminal in your Cartochron checkout and run:</p>
+  <pre class="panel"><code>make demo</code></pre>
+  <p>Open <strong>http://127.0.0.1:8877/</strong>. This launches a second, loopback-only receiver with <strong>1,366 invented observations in seven runs</strong>, named GPSD-style channels, two independent source claims, a recorded gap, an older crossing, a distant stale source, paginated history, and one saved example annotation. The temporary database is deleted when the process ends. Your normal server and its records are not modified.</p>
+  <p>If you already installed the pinned Leaflet assets, <code>python3 demo.py --tour --serve</code> starts the same tour without running the Makefile. The tour is <em>not</em> a real GPSD feed and does not generate new live positions after startup; its receipt times are synthetic.</p>
+  <div class="panel"><strong>Try these in order.</strong> In Monitor, switch between OnePlus, LG and the distant Vienna channel; open <strong>View options</strong> to choose Follow selected or Fit visible. In History, choose <code>demo-oneplus-morning</code> for the gap, then <code>demo-oneplus-evening</code> and open <strong>Compare runs</strong>. Choose <code>demo-lg-evening</code> as the second run, keep 100 metres / 5 minutes, and inspect a witness timeline and its saved example note. Finally, use <strong>Investigate place</strong> near their overlapping positions.</div>
+  <p>The diagrams below illustrate the controls and reasoning. They are <strong>synthetic workflow diagrams, not screenshots</strong> of the running viewer. All examples must be interpreted as reports, not proven movement or encounters.</p>
 
   <h2 id="start">Start here: what am I looking at?</h2>
   <p>A <strong>fix</strong> is one recorded location observation (latitude, longitude, and time). A <strong>track</strong> groups fixes from one recording run. Each track has an ID. Different IDs do not necessarily mean different people or devices.</p>
@@ -70,25 +79,27 @@
   <p>The status text tells you how many fixes are shown. If you see <strong>Load more</strong>, additional observations are available; if you see <strong>interval complete</strong>, all observations in the requested interval have been loaded for the focused track. The viewer limits each displayed run to 5,000 fixes; narrow the interval when a result is marked partial.</p>
   <p><strong>Why did the map zoom very far out?</strong> An initial fit or Follow visible may need to show observations in distant cities, including inaccurate fixes. Choose <strong>Follow selected</strong> to focus one source, or <strong>Free</strong> to inspect without automated map movement. Monitor positions are not independent proof of physical presence.</p>
 
+  <figure>
+    <img src="/docs/images/tour-monitor.png" alt="Schematic Monitor with two recent source positions and one stale position, alongside the camera choices" loading="lazy">
+    <figcaption>Monitor: use stable channel labels, explicitly choose camera behavior, and distinguish recent receipts from stale last positions. A receipt does not prove a live connection.</figcaption>
+  </figure>
+
   <h2 id="points">2. Inspect individual points and missing time</h2>
   <p>In History, hover a small dot to see a fix's timestamp and coordinates. Click a dot or the route line to select a recorded point; the <strong>Inspect point</strong> slider moves with it. You can also move that slider yourself. The highlighted magenta point is your current selection.</p>
   <p>When consecutive fixes are more than <strong>10 minutes</strong> apart, Cartochron splits the line and puts a pale ring at each side of the gap. Select either ring to see the gap duration. The gap means <strong>no observations were recorded during that interval</strong>—not that the source stayed still or disappeared.</p>
   <figure>
-    <img src="/docs/images/gaps.png" alt="History screenshot of the blue city-loop with two gap rings; numbered callouts identify the gap warning and selected-fix details.">
-    <figcaption>Figure 1. Synthetic city-loop: (1) the gap warning under the map; (2) selecting a gap endpoint shows the missing duration. These annotated screenshots use an offline neutral map background, not real GPS data.</figcaption>
+    <img src="/docs/images/tour-gaps.png" alt="Schematic History route split into two segments, with pale rings at the two ends of an unobserved time gap" loading="lazy">
+    <figcaption>History: examine the two endpoints of a 22-minute observation gap in the synthetic morning run. The missing interval has no invented route.</figcaption>
   </figure>
 
-  <h2 id="compare">3. Put several tracks on the map</h2>
+  <h2 id="compare">3. Put several recorded runs on the map</h2>
   <ol class="steps">
-    <li>In <strong>History</strong>, pick the focused recording using <strong>Recording run</strong>.</li>
-    <li>Open <strong>Tracks</strong> and check up to three additional runs. The focused run stays blue; the others get contrasting outlined colors.</li>
+    <li>In <strong>History</strong>, pick the focused recording using <strong>Recording run</strong>. Expand <strong>Tools &amp; filters</strong> for analysis tools and the optional receipt-time interval.</li>
+    <li>Open <strong>Compare tracks</strong> and check up to three additional runs. The focused run stays blue; the others get contrasting outlined colors.</li>
     <li>For <strong>Comparison time</strong>, choose <strong>Entire runs (spatial)</strong> to see each run's loaded history even if they occurred at different times. Choose <strong>Same interval</strong> to limit the other runs to the focused run's From/To window.</li>
     <li>Click a colored dot or line to read the time and coordinates of a comparison fix.</li>
   </ol>
-  <figure>
-    <img src="/docs/images/tracks.png" alt="History screenshot comparing the blue city-loop with a violet crossing track; numbered callouts identify the Tracks button, selected comparison and Shared time result.">
-    <figcaption>Figure 2. Synthetic crossing: (1) open Tracks; (2) the checked comparison run appears in violet; (3) Shared time reports whether the selected instant has a recent fix.</figcaption>
-  </figure>
+  <p>Use the synthetic morning route and <code>demo-old-crossing</code> to test the distinction between geographic crossing and temporal overlap; the crossing reports were received at a different time. A highlighted place or line never establishes a meeting.</p>
   <div class="panel"><strong>A crossing is not a meeting.</strong> Two paths can intersect geographically while their observations were recorded hours apart. Even nearby fixes at nearly the same time do not establish identity, contact, or intent.</div>
 
   <h2 id="time">4. Ask: what was recorded at the same time?</h2>
@@ -97,20 +108,25 @@
 
   <h2 id="place">5. Ask: what was observed near this location?</h2>
   <ol class="steps">
-    <li>In History, open <strong>Inspect place</strong>.</li>
+    <li>In History, open <strong>Investigate place</strong>.</li>
     <li>Choose a radius of <strong>50 m</strong>, <strong>100 m</strong>, or <strong>250 m</strong>.</li>
     <li>Click the location on the map. A circle shows the selected area.</li>
     <li>Read the observations from visible, loaded runs in chronological order. Each result contains its time, track ID, and approximate distance from the selected location.</li>
   </ol>
   <p>The loaded-points list displays at most 40 matching fixes and does not include unloaded pages or hidden tracks. For a separate search of <em>all stored recording runs</em>, click <strong>Search recorded history</strong>. The database results show the run ID, known source/channel labels, reported fix details and distance. Use <strong>Older search page</strong> until the search reports completion. An empty page can still have older candidates. Results are ordered by observation ingestion and the search is not a frozen snapshot when recording continues.</p>
-  <p>The database search accepts an optional <strong>Scope</strong> (exact channel or enrolled source) and local <strong>From</strong>/<strong>To</strong> controls. Those times filter the server <em>receipt clock</em>, not the GPS fix clock. Changing filters starts a new search, not a continuation of an earlier cursor. Above the individual fixes, Cartochron shows groups of matching observations from the <em>retrieved pages only</em>. Each group keeps one run and a maximum five-minute gap between matching receipt times; it is not a visit, dwell measurement or proof that a device remained inside the circle.</p>
+  <p>Expand <strong>Scope and time (optional)</strong> to set an exact filter. The database search accepts an optional <strong>Scope</strong> (exact channel or enrolled source) and local <strong>From</strong>/<strong>To</strong> controls. Those times filter the server <em>receipt clock</em>, not the GPS fix clock. Changing filters starts a new search, not a continuation of an earlier cursor. Above the individual fixes, Cartochron shows groups of matching observations from the <em>retrieved pages only</em>. Each group keeps one run and a maximum five-minute gap between matching receipt times; it is not a visit, dwell measurement or proof that a device remained inside the circle.</p>
   <p><strong>Candidate temporal proximity</strong> compares pairs of <em>retrieved</em> matching fixes from different runs within a chosen <strong>1, 5 or 15 minute</strong> server-receipt window. The list shows each fix's ID, run, receipt time, their reported-coordinate separation, and any reported accuracy. Different enrolled source claims and different configured channel claims are labeled separately; neither is verified device identity. The same enrolled source or same channel is never counted as two identities. Channels with conflicting enrolled-source claims in retrieved results are excluded. Unattributed recordings cannot establish a comparable identity.</p>
   <p>This counts <em>observation pairs</em>, not meetings or visits. High-frequency reports can yield many pairs; only 40 closest receipt-time pairs are displayed. Load older search pages or narrow the time range to test a hypothesis, and check for incomplete coverage. A missing pair does not establish that two devices were apart. The server's receipt clock is not necessarily the time a GPS fix was acquired.</p>
   <p>Neither list establishes a continuous visit, physical identity or intent. A nearby fix may be cached or inaccurate; any stated accuracy comes from the producer, not from independent verification.</p>
 
+  <figure>
+    <img src="/docs/images/tour-place.png" alt="Schematic Investigate place panel with a 100-metre circle, matching synthetic fixes and candidate receipt-time proximity" loading="lazy">
+    <figcaption>Investigate place: select the radius and location, then deliberately search stored history. Every matching fix remains independent evidence; retrieved pages may not cover all records.</figcaption>
+  </figure>
+
   <h2 id="across-places">6. Compare two recorded runs without selecting a place</h2>
   <ol class="steps">
-    <li>In <strong>History</strong>, select the first recording run. Open <strong>Across places</strong>, then choose the second run from suggestions or enter its exact run ID if it is not listed.</li>
+    <li>In <strong>History</strong>, select the first recording run. Expand <strong>Tools &amp; filters</strong> and open <strong>Compare runs</strong>, then choose the second run from suggestions or enter its exact run ID if it is not listed.</li>
     <li>Choose a separation distance and a <strong>1, 5 or 15 minute receipt-time</strong> window. The optional <strong>Use History From/To</strong> checkbox restricts the first run's anchor observations.</li>
     <li>Click <strong>Find observation pairs</strong>. The database searches across the two runs' recorded locations, not only the points loaded into the browser or near one selected place.</li>
     <li>Each result names two original fixes. <strong>Map pair</strong> frames the reported positions without a route. <strong>Inspect timeline</strong> loads bounded receipt-time context around the selected pair, with immediately adjacent recorded fixes and gaps within each individual run. <strong>Map fix</strong> locates one observation without drawing a movement line. <strong>Older candidate page</strong> advances the comparison.</li>
@@ -119,19 +135,24 @@
   <p>The comparison selects at most one nearby fix from the second run per examined fix in the first run. Pages examine up to 200 first-run observations and cap dense second-run candidate windows. The screen explicitly reports when further pages remain or candidate windows were capped. Results can differ if you reverse the selected runs. A missing pair is not proof of physical separation.</p>
   <p>Runs sharing the same enrolled source or acquisition channel are not considered independent, and a channel with contradictory source assertions is refused. Different channel claims alone do not prove two phones. Matching receipt times do not establish matching GPS measurement times. These are <em>observation witnesses, not meetings or visits</em>.</p>
 
+  <figure>
+    <img src="/docs/images/tour-witness.png" alt="Schematic Compare runs evidence timeline with separate A and B witness fixes and an operator annotation" loading="lazy">
+    <figcaption>Compare runs: inspect the original witnesses, their neighboring recorded fixes, and any notes. A note is an interpretation linked to evidence, not an alteration of the observations.</figcaption>
+  </figure>
+
   <h2 id="annotations">7. Link an operator interpretation to exact recorded evidence</h2>
-  <p>In <strong>Across places → Inspect timeline</strong>, expand <strong>How to add a note</strong>. The generated local operator command cites the two original observation IDs. Use <strong>Read linked notes</strong> to inspect saved interpretations associated with that exact witness pair; <strong>Older notes</strong> loads further pages if present. A note is the investigator's statement, never a GPS measurement or verified encounter.</p>
+  <p>In <strong>Compare runs → Inspect timeline</strong>, expand <strong>How to add a note</strong>. The generated local operator command cites the two original observation IDs. Use <strong>Read linked notes</strong> to inspect saved interpretations associated with that exact witness pair; <strong>Older notes</strong> loads further pages if present. A note is the investigator's statement, never a GPS measurement or verified encounter.</p>
   <p>Annotation creation requires local access to the private SQLite database through <code>annotations.py</code>. There is intentionally no browser annotation-write endpoint: the existing HTTP Basic credential also authorizes collection, not independent investigator judgment. Notes are append-only and should be protected alongside the database and backups. See the <a href="https://github.com/cartochron/cartochron/blob/master/docs/handbook.md">handbook</a> for examples. Neither source identity nor the recorded fix is altered by adding a note.</p>
 
   <h2 id="questions">8. Common questions</h2>
   <h3>Why is my comparison track missing?</h3>
-  <p>Open <strong>Tracks</strong> and verify that it is checked. If <strong>Comparison time</strong> says <strong>Same interval</strong>, its observations might fall outside the focused run's time window. Try <strong>Entire runs (spatial)</strong> to compare locations across different times.</p>
+  <p>Open <strong>Compare tracks</strong> and verify that it is checked. If <strong>Comparison time</strong> says <strong>Same interval</strong>, its observations might fall outside the focused run's time window. Try <strong>Entire runs (spatial)</strong> to compare locations across different times.</p>
   <h3>Why is there no line, or why does the line stop?</h3>
   <p>A single fix has no route line. A line can stop at a recording gap of more than ten minutes, or at the edge of the selected interval or loaded pages. Look at the gap warning and the result status.</p>
   <h3>Can I conclude that two sources met?</h3>
   <p>No. You can inspect geographic proximity and compare receipt times, but Cartochron does not prove a meeting, a handoff, or continuous presence between observations. Treat those as hypotheses requiring independent evidence.</p>
-  <h3>Why do the screenshots look different from my map?</h3>
-  <p>The illustrated controls come from synthetic example tracks with an offline neutral background. Your browser normally shows OpenStreetMap tiles, which require network access. The map data underneath the routes may therefore look different.</p>
+  <h3>Why do the guide diagrams look different from my map?</h3>
+  <p>The new illustrations are explicitly labeled synthetic workflow diagrams, not screenshots. Your running viewer uses Leaflet and normally loads OpenStreetMap tiles; its background will look different. Use the isolated tour for hands-on interaction.</p>
   <div class="panel"><strong>Respect location privacy.</strong> Use Cartochron only with authorization. Recorded histories may disclose sensitive movements and must be protected and retained only as necessary. If you are unsure whether the displayed data is complete, check the time interval and partial-results messages before drawing conclusions.</div>
   <footer>Cartochron · Map-reading guide · Illustrations use synthetic observations.</footer>
 </body>

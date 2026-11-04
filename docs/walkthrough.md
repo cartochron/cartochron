@@ -7,7 +7,7 @@ credentials as the map, if authentication is enabled.
 
 ## Map navigation
 
-The **Help / Manual** link in the header opens a user-oriented map-reading
+The **Guide** link in the header opens a user-oriented map-reading
 guide at `/help`. It explains Live/History, track comparisons, time and place
 inspection, gaps, partial results, and what the data does not establish, with
 annotated synthetic screenshots. Installation, Metasploit operation, and testing
@@ -47,7 +47,7 @@ operator-configured assertions, not verified device identities.
 - **Shared time** highlights only the latest recorded fix at or before the
   cursor if it is no more than five minutes old. It never interpolates
   positions or treats stale fixes as current.
-- **Inspect place** accepts a click on the map and lists up to 40
+- **Investigate place** accepts a click on the map and lists up to 40
   chronologically ordered observations from **loaded** tracks within the
   selected radius. It is not a whole-database search.
 
@@ -56,31 +56,37 @@ History uses the server's **receipt times**. These are not guaranteed to equal
 GPS acquisition times. Map tiles are fetched separately from OpenStreetMap;
 an Internet connection is needed for the background map.
 
-## Visual demo (no Metasploit required)
+## Guided investigation demo (no device required)
 
-Create a **new, disposable** SQLite database containing synthetic observations:
+Run `make demo` from a checkout, then open <http://127.0.0.1:8877/>. The
+separate loopback-only demo uses a temporary SQLite file and deletes it when
+stopped. No real phone, network position feed, or existing database is touched.
+The fixture has seven intentionally different runs, named channels, source
+claims, a gap, stale receipts, a long archive, and a note attached to an
+exact synthetic evidence pair.
+
+In Monitor, compare the OnePlus and LG channels; show the stale Vienna channel
+only when you intend to inspect old reports. In History, open
+`demo-oneplus-morning` to see the gap; use `demo-old-crossing` to test a
+geographic crossing at a different time. Choose `demo-oneplus-evening`, open
+**Compare runs**, choose `demo-lg-evening`, and look for a 100-metre / 5-minute
+candidate witness. Inspect the witness timeline and its linked example note.
+Alternatively, open **Investigate place**, click their shared region, and
+search stored history explicitly.
+
+See the illustrated [handbook](handbook.md) and in-app `/help` for diagrams
+and interpretation cautions. These workflows contain only synthetic reports;
+none establishes continuous presence or a meeting.
+
+The earlier small five-run fixture remains available via:
 
 ```sh
-make                       # Fetch Leaflet assets once, if necessary
-python3 demo.py --db /tmp/cartochron-demo.sqlite3
-python3 map_server.py --db /tmp/cartochron-demo.sqlite3
+python3 demo.py --db /tmp/cartochron-small-demo.sqlite3
+python3 map_server.py --db /tmp/cartochron-small-demo.sqlite3
 ```
 
-Open <http://127.0.0.1:8765/>. The demo has five recording runs:
-
-| Run | What to inspect |
-| --- | --- |
-| `demo-city-loop` | 75 fixes; History shows two route segments across a 21.5-minute gap |
-| `demo-river` | 30 fixes in a different city; selecting it never joins the first route |
-| `demo-crossing` | 25 fixes crossing the city loop's geography at a different time |
-| `demo-single-point` | One fix, with no fabricated polyline |
-| `demo-long-history` | 1,205 fixes; History shows **Load more** after the first 1,000 |
-
-The fixture uses dates relative to when it is generated, so the default
-historical interval includes the example points. `demo.py` refuses to
-overwrite an existing file; choose a fresh path if you want to regenerate it.
-It writes directly to a new SQLite database rather than pretending to be a
-real device. Never run the demo against an existing observation database.
+Both modes refuse to overwrite an existing database. The demo server needs
+the locally vendored Leaflet assets (run `make` once if necessary).
 
 The map now has small inspection nodes along the displayed route. Hover over a
 node to see the recording run, receipt time, and coordinates. Click a node or
@@ -101,7 +107,7 @@ The viewport fits visible tracks, even when they come from different cities.
 Try `demo-city-loop` plus `demo-crossing`; their routes intersect on the map
 but the fixes were recorded at different times. Their intersection alone
 cannot establish a meeting. Use the **Shared time** slider to see whether
-recent recorded fixes exist for each run, or **Inspect place** to read loaded
+recent recorded fixes exist for each run, or **Investigate place** to read loaded
 observations near a manually chosen location in timestamp order.
 
 The browser caps each displayed run at 5,000 observations and reports partial
@@ -109,7 +115,7 @@ pages. Place inspection and the shared time cursor operate only on the points
 currently loaded in the browser, not the entire persisted database. Check
 pagination and time intervals before treating an empty result as meaningful.
 
-See **Help / Manual** for screenshots and an operator walkthrough. The manual
+See **Guide** for screenshots and an operator walkthrough. The manual
 captures use a **neutral offline demonstration map base** and synthetic
 positions, not real GPS or downloaded map tiles.
 
