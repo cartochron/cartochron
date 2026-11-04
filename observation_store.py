@@ -669,6 +669,157 @@ class ObservationStore:
         return {"points": matches, "scanned": scanned, "truncated": has_more,
                 "next_cursor": str(last_examined) if has_more else None}
 
+    def run_proximity(self, track_id, other_track_id, radius_m, window_s, *,
+                      limit=20, before=None, from_ms=None, to_ms=None):
+        """Find bounded, receipt-time proximity witnesses between *two runs*.
+
+        Each result is an anchor fix and its nearest qualifying fix from the
+        other run (not an encounter). The anchor is paged by (receipt,id) using
+        the existing track/time index. Neither trajectory is interpolated.
+        """
+        if not valid_track_id(track_id) or not valid_track_id(other_track_id):
+            raise ValueError("two valid recording run IDs are required")
+        if track_id == other_track_id:
+            raise ValueError("choose two distinct recording runs")
+        if (type(radius_m) not in (int, float) or not math.isfinite(radius_m)
+                or not 10 <= radius_m <= 1000):
+            raise ValueError("radius_m must be 10..1000")
+        if type(window_s) is not int or window_s not in (60, 300, 900):
+            raise ValueError("window_s must be 60, 300 or 900")
+        if type(limit) is not int or not 1 <= limit <= 40:
+            raise ValueError("limit must be 1..40")
+        if before is not None and (not isinstance(before, tuple) or len(before) != 2 or
+                any(type(x) is not int or not -(1 << 63) <= x < (1 << 63) for x in before)
+                or before[1] <= 0):
+            raise ValueError("invalid cursor")
+        for name, value in (("from", from_ms), ("to", to_ms)):
+            if value is not None and (type(value) is not int or not -(1 << 63) <= value < (1 << 63)):
+                raise ValueError(f"invalid {name}")
+        if from_ms is not None and to_ms is not None and from_ms >= to_ms:
+            raise ValueError("from must precede to")
+
+        with self._lock:
+            runs = self._db.execute("""
+                SELECT r.track_id, r.source_id, s.label, r.channel_id, c.label
+                FROM runs r LEFT JOIN sources s ON s.source_id = r.source_id
+                LEFT JOIN channel_labels c ON c.channel_id = r.channel_id
+                WHERE r.track_id IN (?, ?)
+            """, (track_id, other_track_id)).fetchall()
+            identities = {row[0]: row for row in runs}
+            if track_id not in identities or other_track_id not in identities:
+                raise ValueError("unknown recording run")
+            a, b = identities[track_id], identities[other_track_id]
+            if ((a[1] and b[1] and a[1] == b[1]) or
+                    (a[3] and b[3] and a[3] == b[3])):
+                raise ValueError("runs share a source or acquisition channel")
+            if a[1] and b[1]:
+                kind = "source"
+            elif a[3] and b[3]:
+                kind = "channel"
+            else:
+                raise ValueError("runs lack two comparable source or channel claims")
+            for channel in (a[3], b[3]):
+                if channel and self._db.execute("""
+                    SELECT COUNT(DISTINCT source_id) FROM runs
+                    WHERE channel_id = ? AND source_id IS NOT NULL
+                """, (channel,)).fetchone()[0] > 1:
+                    raise ValueError("channel has conflicting enrolled-source claims")
+
+            conditions = ["track_id = ?"]
+            args = [track_id]
+            if from_ms is not None:
+                conditions.append("received_ms >= ?")
+                args.append(from_ms)
+            if to_ms is not None:
+                conditions.append("received_ms < ?")
+                args.append(to_ms)
+            if before is not None:
+                conditions.append("(received_ms, id) < (?, ?)")
+                args.extend(before)
+            # Bounded page by anchor observations, not by reported matches.
+            # A sparse interval still advances; no global pairwise join.
+            anchors = self._db.execute("""
+                SELECT id, received_ms, lat, lon, measured_ms, provider, accuracy_m
+                FROM observations WHERE """ + " AND ".join(conditions) + """
+                ORDER BY received_ms DESC, id DESC LIMIT 201
+            """, (*args,)).fetchall()
+            witnesses = []
+            limited_candidates = False
+            scanned = 0
+            last = None
+            for row in anchors[:200]:
+                if len(witnesses) >= limit:
+                    break
+                scanned += 1
+                ident, received, lat, lon, *_ = row
+                last = (received, ident)
+                delta_lat = radius_m / 110_000
+                lat_low, lat_high = max(-90, lat - delta_lat), min(90, lat + delta_lat)
+                outer_lat = min(90, abs(lat) + delta_lat)
+                cosine = math.cos(math.radians(outer_lat))
+                delta_lon = 180 if cosine < 0.0001 else min(180, radius_m / (110_000 * cosine))
+                lon_low, lon_high = lon - delta_lon, lon + delta_lon
+                if delta_lon == 180:
+                    lon_clause, lon_args = "", []
+                elif lon_low < -180:
+                    lon_clause, lon_args = "AND (lon >= ? OR lon <= ?)", [lon_low + 360, lon_high]
+                elif lon_high > 180:
+                    lon_clause, lon_args = "AND (lon >= ? OR lon <= ?)", [lon_low, lon_high - 360]
+                else:
+                    lon_clause, lon_args = "AND lon BETWEEN ? AND ?", [lon_low, lon_high]
+                # Two index-ordered half-windows. No ORDER BY ABS() sort, and
+                # a hard per-side bound prevents one dense track consuming
+                # unbounded memory/CPU for each anchor.
+                choices = []
+                capped = False
+                for op, direction, lo, hi in (
+                    ('<=', 'DESC', received - window_s * 1000, received),
+                    ('>', 'ASC', received, received + window_s * 1000),
+                ):
+                    candidates = self._db.execute(f"""
+                        SELECT id, received_ms, lat, lon, measured_ms, provider, accuracy_m
+                        FROM observations
+                        WHERE track_id = ? AND received_ms {op} ?
+                              AND received_ms BETWEEN ? AND ?
+                              AND lat BETWEEN ? AND ? {lon_clause}
+                        ORDER BY received_ms {direction}, id {direction} LIMIT 101
+                    """, (other_track_id, received, lo, hi, lat_low, lat_high,
+                          *lon_args)).fetchall()
+                    capped |= len(candidates) > 100
+                    for candidate in candidates[:100]:
+                        plat, plon = candidate[2], candidate[3]
+                        dlat = math.radians(plat - lat)
+                        dlon = math.radians(plon - lon)
+                        hav = (math.sin(dlat / 2) ** 2 +
+                               math.cos(math.radians(lat)) * math.cos(math.radians(plat)) *
+                               math.sin(dlon / 2) ** 2)
+                        distance = 12_742_000 * math.asin(min(1, math.sqrt(max(0, hav))))
+                        if distance <= radius_m:
+                            choices.append((abs(received - candidate[1]), distance,
+                                            candidate[0], candidate))
+                if not choices:
+                    limited_candidates |= capped
+                    continue
+                _, distance, _, candidate = min(choices)
+                point_a = self._historical_point(row)
+                point_b = self._historical_point(candidate)
+                for point, identity in ((point_a, a), (point_b, b)):
+                    point.update(track_id=identity[0], source_id=identity[1],
+                                 source_label=identity[2], channel_id=identity[3],
+                                 channel_label=identity[4])
+                witnesses.append({"a": point_a, "b": point_b, "distance_m": round(distance, 1),
+                                  "receipt_delta_ms": abs(received - candidate[1]),
+                                  "identity_kind": kind})
+                # If a qualifying fix was found, the closest *eligible* fix
+                # (within the bounded time candidates) is selected. Dense
+                # capped windows can still omit even closer spatial matches.
+                limited_candidates |= capped
+            more = len(anchors) > scanned
+        return {"pairs": witnesses, "scanned": scanned,
+                "next_cursor": f"{last[0]}:{last[1]}" if more else None,
+                "truncated": more, "candidate_limited": limited_candidates,
+                "pair_semantics": "nearest qualifying reported fix per examined anchor"}
+
     def close(self):
         with self._lock:
             self._db.close()

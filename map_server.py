@@ -176,6 +176,42 @@ def parse_place_query(query):
             "source_id": sid}
 
 
+def parse_proximity_query(query):
+    """Require two runs and bounded, explicit comparison parameters."""
+    if len(query) > 512:
+        raise ValueError("query is too long")
+    try:
+        params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=9)
+    except ValueError as exc:
+        raise ValueError("invalid query string") from exc
+    allowed = {"track_id", "other_track_id", "radius_m", "window_s",
+               "limit", "before", "from", "to"}
+    if set(params) - allowed or any(len(v) != 1 for v in params.values()):
+        raise ValueError("unknown or repeated proximity parameter")
+    try:
+        radius = float(params["radius_m"][0])
+        window_s = int(params["window_s"][0])
+    except (KeyError, ValueError, OverflowError) as exc:
+        raise ValueError("radius_m and window_s are required numbers") from exc
+    raw_limit = params.get("limit", ["20"])[0]
+    if not re.fullmatch(r"[1-9][0-9]?", raw_limit) or int(raw_limit) > 40:
+        raise ValueError("limit must be 1..40")
+    raw_before = params.get("before", [None])[0]
+    if raw_before is not None:
+        match = _CURSOR.fullmatch(raw_before)
+        if not match:
+            raise ValueError("invalid proximity cursor")
+        before = tuple(int(v) for v in match.groups())
+    else:
+        before = None
+    return {"track_id": params.get("track_id", [None])[0],
+            "other_track_id": params.get("other_track_id", [None])[0],
+            "radius_m": radius, "window_s": window_s, "limit": int(raw_limit),
+            "before": before, "from_ms": parse_optional_timestamp(params, "from"),
+            "to_ms": parse_optional_timestamp(params, "to")}
+
+
 class Server(ThreadingHTTPServer):
     # Drain in-flight requests before closing their shared SQLite connection.
     daemon_threads = False
@@ -293,6 +329,15 @@ class Handler(BaseHTTPRequestHandler):
             if not asset.is_file():
                 return self._json(503, {"error": "Leaflet not installed: run python3 vendor_leaflet.py"})
             return self._reply(200, asset.read_bytes(), _LEAFLET_FILES[path])
+        if path == "/api/proximity":
+            try:
+                data = self.server.store.run_proximity(
+                    **parse_proximity_query(urlsplit(self.path).query))
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/place/observations":
             try:
                 data = self.server.store.place_observations(
