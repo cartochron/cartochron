@@ -99,6 +99,36 @@ def parse_history_query(query):
             "limit": int(raw_limit), "after": after}
 
 
+def parse_runs_query(query):
+    """Exact channel/source filters and a bounded newest-run pagination cursor."""
+    if len(query) > 256:
+        raise ValueError("query is too long")
+    try:
+        params = parse_qs(query, keep_blank_values=True, strict_parsing=True, max_num_fields=4)
+    except ValueError as exc:
+        raise ValueError("invalid query string") from exc
+    if set(params) - {"limit", "before", "channel_id", "source_id"} or any(
+            len(values) != 1 for values in params.values()):
+        raise ValueError("unknown or repeated query parameter")
+    raw_limit = params.get("limit", ["50"])[0]
+    raw_before = params.get("before", [None])[0]
+    if not re.fullmatch(r"[1-9][0-9]{0,2}", raw_limit) or int(raw_limit) > 100:
+        raise ValueError("limit must be between 1 and 100")
+    if raw_before is not None and (re.fullmatch(r"[1-9][0-9]{0,18}", raw_before) is None
+                                  or int(raw_before) > (1 << 63) - 1):
+        raise ValueError("invalid before cursor")
+    cid = params.get("channel_id", [None])[0]
+    sid = params.get("source_id", [None])[0]
+    if cid is not None and not valid_channel_id(cid):
+        raise ValueError("invalid channel_id")
+    if sid is not None and not valid_source_id(sid):
+        raise ValueError("invalid source_id")
+    if cid is not None and sid is not None:
+        raise ValueError("choose channel_id or source_id")
+    return {"limit": int(raw_limit), "before": int(raw_before) if raw_before else None,
+            "channel_id": cid, "source_id": sid}
+
+
 class Server(ThreadingHTTPServer):
     # Drain in-flight requests before closing their shared SQLite connection.
     daemon_threads = False
@@ -252,6 +282,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/monitor" and not urlsplit(self.path).query:
             try:
                 data = self.server.store.monitor()
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
+        if path == "/api/runs":
+            try:
+                params = parse_runs_query(urlsplit(self.path).query)
+                data = self.server.store.runs_page(**params)
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
             except sqlite3.Error:
                 return self._json(503, {"error": "observation storage unavailable"})
             return self._json(200, data)

@@ -12,10 +12,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_TRACKS = 100
 MAX_SOURCES = 100
 MAX_MONITOR = 100
+MAX_RUN_PAGE = 100
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
 TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 CHANNEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -93,7 +94,7 @@ class ObservationStore:
             if existing:
                 raise ValueError("database has no Cartochron schema version; refusing to modify it")
             self._create_schema()
-        elif version in (1, 2, 3):
+        elif version in (1, 2, 3, 4):
             self._migrate(version)
         elif version != SCHEMA_VERSION:
             raise ValueError(f"unsupported database schema version: {version}")
@@ -117,6 +118,12 @@ class ObservationStore:
                 )
             """)
             self._db.execute("CREATE INDEX runs_channel ON runs(channel_id)")
+            self._db.execute("""
+                CREATE TABLE channel_labels (
+                    channel_id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL
+                )
+            """)
             self._db.execute("""
                 CREATE TABLE observations (
                     id INTEGER PRIMARY KEY,
@@ -185,6 +192,20 @@ class ObservationStore:
                 self._db.execute("ALTER TABLE runs ADD COLUMN channel_id TEXT")
                 self._db.execute("CREATE INDEX runs_channel ON runs(channel_id)")
                 self._db.execute("PRAGMA user_version = 4")
+            version = 4
+
+        if version == 4:
+            # Display names are separate from producer-origin run assertions.
+            self._db.execute("SELECT track_id, source_id, channel_id FROM runs LIMIT 0")
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute("""
+                    CREATE TABLE channel_labels (
+                        channel_id TEXT PRIMARY KEY,
+                        label TEXT NOT NULL
+                    )
+                """)
+                self._db.execute("PRAGMA user_version = 5")
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.
@@ -194,17 +215,45 @@ class ObservationStore:
         )
         self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
         self._db.execute("SELECT track_id, source_id, channel_id FROM runs LIMIT 0")
+        self._db.execute("SELECT channel_id, label FROM channel_labels LIMIT 0")
 
-    def enroll(self, label):
-        """Create an operator-enrolled source. Labels are descriptions, not keys."""
+    @staticmethod
+    def _valid_label(label):
         if (not isinstance(label, str) or not 1 <= len(label) <= 80
                 or not label.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in label)):
             raise ValueError("label must be 1-80 printable characters")
+
+    def enroll(self, label):
+        """Create an operator-enrolled source. Labels are descriptions, not keys."""
+        self._valid_label(label)
         with self._lock, self._db:
             source_id = "src_" + secrets.token_hex(12)
             self._db.execute("INSERT INTO sources(source_id, label) VALUES (?, ?)",
                              (source_id, label))
         return source_id
+
+    def rename_source(self, source_id, label):
+        """Change a display label without changing run attribution."""
+        if not valid_source_id(source_id):
+            raise ValueError("invalid source_id")
+        self._valid_label(label)
+        with self._lock, self._db:
+            if self._db.execute("UPDATE sources SET label=? WHERE source_id=?",
+                                (label, source_id)).rowcount == 0:
+                raise ValueError("source_id not enrolled")
+
+    def label_channel(self, channel_id, label):
+        """Name an observed input channel; never reparent existing runs."""
+        if not valid_channel_id(channel_id):
+            raise ValueError("invalid channel_id")
+        self._valid_label(label)
+        with self._lock, self._db:
+            if self._db.execute("SELECT 1 FROM runs WHERE channel_id=? LIMIT 1",
+                                (channel_id,)).fetchone() is None:
+                raise ValueError("unknown channel_id")
+            self._db.execute("""INSERT INTO channel_labels(channel_id, label)
+                VALUES (?, ?) ON CONFLICT(channel_id) DO UPDATE SET label=excluded.label""",
+                (channel_id, label))
 
     def sources(self):
         """Return an authenticated, bounded source catalogue, including idle sources."""
@@ -333,7 +382,7 @@ class ObservationStore:
         """Bounded catalogue of runs, ordered by most recent ingestion."""
         with self._lock:
             rows = self._db.execute(
-                """                SELECT runs.track_id, r.source_id, s.label, r.channel_id,
+                """                SELECT runs.track_id, r.source_id, s.label, r.channel_id, c.label,
                        runs.count, runs.first_ms, runs.last_ms
                 FROM (
                     SELECT track_id, COUNT(*) AS count,
@@ -344,16 +393,18 @@ class ObservationStore:
                 ) AS runs
                 LEFT JOIN runs r ON r.track_id = runs.track_id
                 LEFT JOIN sources s ON s.source_id = r.source_id
+                LEFT JOIN channel_labels c ON c.channel_id = r.channel_id
                 ORDER BY runs.last_id DESC""",
                 (MAX_TRACKS + 1,),
             ).fetchall()
         return {
             "tracks": [
                 {"track_id": track_id, "source_id": source_id, "source_label": source_label,
-                 "channel_id": channel_id, "count": count,
+                 "channel_id": channel_id, "channel_label": channel_label, "count": count,
                  "first": self._timestamp(first_ms, "milliseconds"),
                  "last": self._timestamp(last_ms, "milliseconds")}
-                for track_id, source_id, source_label, channel_id, count, first_ms, last_ms in rows[:MAX_TRACKS]
+                for track_id, source_id, source_label, channel_id, channel_label,
+                count, first_ms, last_ms in rows[:MAX_TRACKS]
             ],
             "truncated": len(rows) > MAX_TRACKS,
         }
@@ -372,8 +423,9 @@ class ObservationStore:
                     SELECT track_id, COUNT(*) AS count, MAX(id) AS last_id
                     FROM observations GROUP BY track_id
                 ), identified AS (
-                    SELECT f.*, latest.received_ms AS last_ms, r.channel_id, r.source_id,
-                           s.label AS source_label,
+                    SELECT f.*, latest.received_ms AS last_ms, latest.lat, latest.lon,
+                           r.channel_id, r.source_id, s.label AS source_label,
+                           c.label AS channel_label,
                            CASE WHEN r.channel_id IS NOT NULL THEN 'channel'
                                 WHEN r.source_id IS NOT NULL THEN 'source'
                                 ELSE 'unattributed' END AS kind,
@@ -382,6 +434,7 @@ class ObservationStore:
                     JOIN observations latest ON latest.id = f.last_id
                     LEFT JOIN runs r ON r.track_id = f.track_id
                     LEFT JOIN sources s ON s.source_id = r.source_id
+                    LEFT JOIN channel_labels c ON c.channel_id = r.channel_id
                 ), ranked AS (
                     SELECT *,
                            COUNT(*) OVER (PARTITION BY kind, identity) AS run_count,
@@ -394,19 +447,76 @@ class ObservationStore:
                     FROM identified
                 )
                 SELECT kind, identity, track_id, source_id, source_label,
-                       channel_id, last_ms, run_count, source_min != source_max
+                       channel_id, channel_label, lat, lon, last_ms, run_count,
+                       source_min != source_max
                 FROM ranked WHERE rank = 1
                 ORDER BY last_id DESC LIMIT ?
             """, (MAX_MONITOR + 1,)).fetchall()
         return {"entries": [
             {"kind": kind, "id": identity if kind != "unattributed" else track,
              "track_id": track, "source_id": source_id, "source_label": source_label,
-             "channel_id": channel_id, "runs": run_count,
+             "channel_id": channel_id, "channel_label": channel_label,
+             "lat": lat, "lon": lon, "runs": run_count,
              "mixed_sources": bool(mixed),
              "last": self._timestamp(last, "milliseconds")}
             for kind, identity, track, source_id, source_label, channel_id,
-            last, run_count, mixed in rows[:MAX_MONITOR]
+            channel_label, lat, lon, last, run_count, mixed in rows[:MAX_MONITOR]
         ], "truncated": len(rows) > MAX_MONITOR}
+
+    def runs_page(self, *, limit=50, before=None, channel_id=None, source_id=None):
+        """Page recording runs by last inserted fix; never join their points.
+
+        A cursor is a row-ID boundary, not a database snapshot. The selected
+        channel or source is an exact stored assertion, not a name match.
+        """
+        if type(limit) is not int or not 1 <= limit <= MAX_RUN_PAGE:
+            raise ValueError("invalid limit")
+        if before is not None and (type(before) is not int or not 1 <= before <= (1 << 63) - 1):
+            raise ValueError("invalid before cursor")
+        if channel_id is not None and not valid_channel_id(channel_id):
+            raise ValueError("invalid channel_id")
+        if source_id is not None and not valid_source_id(source_id):
+            raise ValueError("invalid source_id")
+        if channel_id is not None and source_id is not None:
+            raise ValueError("filter by channel or source, not both")
+        filters, params = [], []
+        if channel_id is not None:
+            filters.append("r.channel_id = ?")
+            params.append(channel_id)
+        if source_id is not None:
+            filters.append("r.source_id = ?")
+            params.append(source_id)
+        where = ("WHERE " + " AND ".join(filters)) if filters else ""
+        having = "HAVING MAX(o.id) < ?" if before is not None else ""
+        if before is not None:
+            params.append(before)
+        with self._lock:
+            rows = self._db.execute(f"""
+                SELECT summary.track_id, r.source_id, s.label, r.channel_id, c.label,
+                       summary.count, summary.first_ms, summary.last_ms, summary.last_id
+                FROM (
+                    SELECT o.track_id, COUNT(*) AS count,
+                           MIN(o.received_ms) AS first_ms, MAX(o.received_ms) AS last_ms,
+                           MAX(o.id) AS last_id
+                    FROM observations o
+                    LEFT JOIN runs r ON r.track_id=o.track_id
+                    {where}
+                    GROUP BY o.track_id {having}
+                    ORDER BY last_id DESC LIMIT ?
+                ) AS summary
+                LEFT JOIN runs r ON r.track_id=summary.track_id
+                LEFT JOIN sources s ON s.source_id=r.source_id
+                LEFT JOIN channel_labels c ON c.channel_id=r.channel_id
+                ORDER BY summary.last_id DESC
+            """, (*params, limit + 1)).fetchall()
+        page = rows[:limit]
+        return {"tracks": [
+            {"track_id": track_id, "source_id": sid, "source_label": slabel,
+             "channel_id": cid, "channel_label": clabel, "count": count,
+             "first": self._timestamp(first, "milliseconds"),
+             "last": self._timestamp(last, "milliseconds")}
+            for track_id, sid, slabel, cid, clabel, count, first, last, _ in page
+        ], "next_cursor": str(page[-1][-1]) if len(rows) > limit else None}
 
     def history(self, track_id, *, from_ms=None, to_ms=None, limit=MAX_RECENT_POINTS,
                 after=None):
