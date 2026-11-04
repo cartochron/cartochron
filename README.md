@@ -5,7 +5,8 @@ research. The Python receiver accepts observations over HTTP and stores them
 in SQLite; an optional Metasploit Android adapter supplies reported positions.
 The Leaflet viewer lets you follow individual recording runs, inspect history,
 compare runs, and see where observation gaps or possible positioning jumps
-make movement uncertain.
+make movement uncertain. Live view distinguishes recently received reports from
+stale stored data; it cannot verify whether a producer is connected.
 
 **Cartochron records observations, not verified movements.** Android
 Meterpreter `geolocate` returns a last-known network-provider location; its

@@ -99,6 +99,57 @@ function point(i, minutes = i) {
   };
 }
 
+test('live receipt status distinguishes recent data from stale history without claiming online', () => {
+  const ui = viewer();
+  const now = Date.now();
+  const current = {...point(0), time: new Date(now - 15_000).toISOString()};
+  const old = {...point(0), time: new Date(now - 3_600_000).toISOString()};
+  ui.render([current], 'live');
+  assert.match(ui.element('feed-state').textContent, /Recent receipts/);
+  assert.match(ui.element('status').textContent, /connection not verified/);
+  assert.equal(ui.group.layers.find(l => l.type === 'circle').options.fillColor, '#39b86f');
+  ui.render([old], 'live');
+  assert.match(ui.element('feed-state').textContent, /No recent receipts/);
+  assert.match(ui.element('status').textContent, /position is not current/);
+  assert.equal(ui.group.layers.find(l => l.type === 'circle').options.fillColor, '#748391');
+  ui.render([old], 'history');
+  assert.equal(ui.element('feed-state').textContent, 'Historical interval');
+  assert.match(ui.element('status').textContent, /History/);
+});
+
+test('live view ages unchanged observations without a new server point', () => {
+  const ui = viewer();
+  const start = Date.now();
+  ui.context.Date = class extends Date {static now() {return start;}};
+  const latest = {...point(0), time: new Date(start - 15_000).toISOString()};
+  ui.render([latest], 'live');
+  assert.match(ui.element('feed-state').textContent, /Recent receipts/);
+  const originalLayers = ui.group.layers;
+  ui.exec('render(false)');
+  assert.equal(ui.group.layers, originalLayers); // Only the text is refreshed.
+  ui.context.Date = class extends Date {static now() {return start + 3 * 60_000;}};
+  ui.exec('render(false)');
+  assert.equal(ui.element('feed-state').textContent, 'No recent receipts');
+  assert.match(ui.element('status').textContent, /position is not current/);
+  assert.equal(ui.group.layers.find(l => l.type === 'circle').options.fillColor, '#748391');
+  assert.equal(ui.exec('points.length'), 1); // Nothing discarded or invented.
+});
+
+test('empty live run has a final, explicit status', () => {
+  const ui = viewer();
+  ui.render([], 'live');
+  assert.equal(ui.element('feed-state').textContent, 'No observations');
+  assert.match(ui.element('status').textContent, /No recorded observations/);
+});
+
+test('receipt classification handles future clocks and keeps provenance separate', () => {
+  const ui = viewer();
+  const now = 1_800_000_000_000;
+  assert.equal(ui.exec(`receiptState("2026-11-03T10:00:00Z", ${now}).kind`), 'stale');
+  assert.equal(ui.exec(`receiptState("not a timestamp", ${now}).kind`), 'unknown');
+  assert.equal(ui.exec(`receiptState("2026-11-03T10:00:00Z", ${now}).label`).includes('ago'), true);
+});
+
 test('dots show safe labels and select a historical point without moving the slider by hand', () => {
   const ui = viewer();
   const layers = ui.render([point(0), point(1), point(2)]);

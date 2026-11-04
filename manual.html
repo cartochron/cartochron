@@ -55,12 +55,12 @@
     <li><span class="key selected"></span>Selected fix</li>
     <li><span class="key gap"></span>Recording-gap endpoint</li>
   </ul>
-  <div class="panel"><strong>What does the time mean?</strong> The displayed time is when Cartochron's server <em>received</em> the observation, shown in your browser's local time zone. It may differ from the moment the GPS fix was obtained. The current Meterpreter adapter reports neither fix age nor measured accuracy; it reads Android's last-known network-provider location, which can be cached.</div>
+  <div class="panel"><strong>What does the time mean?</strong> The displayed time is when Cartochron's server <em>received</em> the observation, shown in your browser's local time zone. It may differ from the moment the GPS fix was obtained. The Metasploit adapter reads Android's cached last-known network-provider location, with unknown acquisition time and accuracy. GPSD may report a measurement timestamp and horizontal error estimate, neither independently verified by Cartochron.</div>
 
   <h2 id="live-history">1. Follow a track or look into the past</h2>
   <ol class="steps">
     <li>Choose a recording ID from <strong>Track</strong> at the top right.</li>
-    <li>Choose <strong>Live</strong> to follow newly received fixes for that run. The view updates automatically and shows up to 1,000 recent fixes. A timestamp tells you when the latest fix was received, <em>not</em> that the source is still there.</li>
+    <li>Choose <strong>Live</strong> to refresh the selected run automatically. It shows up to 1,000 latest stored observations, even after the producer stops. <strong>Recent receipts</strong> means data arrived within the last two minutes; it does not prove a connection is active. <strong>No recent receipts</strong> means the last observation is older, so Cartochron dims the route and last point. These are receipt-age hints, not device-online or movement claims.</li>
     <li>Choose <strong>History</strong> to inspect a fixed period without the view changing as new observations arrive.</li>
     <li>Adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Dates entered here are in your local time zone.</li>
   </ol>

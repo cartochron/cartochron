@@ -12,7 +12,8 @@ const MAX_NODES = 140; // Keep long routes inspectable without thousands of DOM/
 const OVERLAY_COLORS = ['#8724d5', '#007c78', '#ca325a'];
 const OVERLAY_OUTLINE = '#162735'; // Dark casing works over light and busy tiles.
 const MAX_OVERLAYS = 3;
-const NEARBY_FIX_MS = 5 * 60 * 1000; // Do not display an old fix as a current location.
+const NEARBY_FIX_MS = 5 * 60 * 1000; // Shared-time comparison, not live-feed status.
+const RECENT_RECEIPT_MS = 2 * 60 * 1000; // Heuristic for receipts, not connection proof.
 const JUMP_MIN_M = 200; // Review-only heuristic; not evidence of inaccurate GPS.
 const JUMP_MIN_MPS = 25; // Apparent speed from *receipt* times, not measured motion.
 const map = L.map('map').setView([0, 0], 2);
@@ -59,10 +60,48 @@ async function getJSON(url) {
   return response.json();
 }
 function trackInfo() { return catalogue.find(t => t.track_id === selectedTrack); }
+function receiptState(time, now = Date.now()) {
+  const received = Date.parse(time);
+  const age = now - received;
+  if (!Number.isFinite(age) || age < -30_000)
+    return {kind: 'unknown', label: 'receipt time uncertain'};
+  const elapsed = Math.max(0, age);
+  const label = elapsed < 60_000 ? `${Math.floor(elapsed / 1000)}s ago`
+    : elapsed < 3_600_000 ? `${Math.floor(elapsed / 60_000)}m ago`
+    : elapsed < 86_400_000 ? `${Math.floor(elapsed / 3_600_000)}h ago`
+    : `${Math.floor(elapsed / 86_400_000)}d ago`;
+  return {kind: elapsed <= RECENT_RECEIPT_MS ? 'recent' : 'stale', label};
+}
+function feedState(kind, label) {
+  $('feed-state').textContent = label;
+  $('feed-state').setAttribute('data-state', kind);
+}
 function runLabel(record) {
   // A source label is descriptive, not proof that a particular device produced a fix.
-  return record.source_label ? `${record.track_id} · ${record.source_label}`
+  const name = record.source_label ? `${record.track_id} · ${record.source_label}`
     : `${record.track_id} · unassigned`;
+  if (!record.last) return name;
+  const receipt = receiptState(record.last);
+  return `${name} · ${receipt.kind === 'recent' ? 'recent receipts' :
+    receipt.kind === 'stale' ? 'last received' : 'unknown time'} ${receipt.label}`;
+}
+function showLiveStatus() {
+  if (mode !== 'live') return;
+  if (!points.length) {
+    feedState('unknown', 'No observations');
+    status('Live view · No recorded observations for this run');
+    return;
+  }
+  const latest = points.at(-1);
+  const receipt = receiptState(latest.time);
+  feedState(receipt.kind, receipt.kind === 'recent' ? 'Recent receipts' :
+    receipt.kind === 'stale' ? 'No recent receipts' : 'Receipt time uncertain');
+  const summary = receipt.kind === 'recent' ?
+    `Received ${receipt.label}; connection not verified` :
+    receipt.kind === 'stale' ? `Last received ${receipt.label}; position is not current` :
+    'Receipt time uncertain; position is not confirmed current';
+  status(`Live view · ${points.length} stored observations · ${summary} · ${localTime(latest.time)}`
+    + (positioningJumps.length ? ` · ${positioningJumps.length} possible positioning jump${positioningJumps.length === 1 ? '' : 's'}` : ''));
 }
 
 function clearView() {
@@ -88,6 +127,7 @@ function clearView() {
   $('more').hidden = true;
   $('page-status').textContent = '';
   $('gap-status').textContent = '';
+  feedState(mode === 'live' ? 'unknown' : 'history', mode === 'live' ? 'Checking receipts' : 'History');
   status(selectedTrack ? 'Loading observations…' : 'Waiting for a recording run');
 }
 
@@ -185,15 +225,17 @@ function fitObservations(observations) {
 }
 
 function render(fit = false) {
-  const signature = points.length + ':' + (points[0]?.id ?? points[0]?.time ?? '')
+  const freshness = mode === 'live' && points.length ? receiptState(points.at(-1).time) : null;
+  const signature = (freshness?.kind || '') + ':' + points.length + ':' + (points[0]?.id ?? points[0]?.time ?? '')
     + ':' + JSON.stringify(points.at(-1) || '');
-  if (signature === lastSignature && !fit) return;
+  if (signature === lastSignature && !fit) { showLiveStatus(); return; }
   lastSignature = signature;
   layer.clearLayers();
   inspectedMarker = null;
   if (!points.length) {
     $('inspect').hidden = true;
-    status('No observations in this interval');
+    if (mode === 'live') showLiveStatus();
+    else status('No observations in this interval');
     return;
   }
   const {segments: routeSegments, ends, gaps, jumps} = routeParts(points);
@@ -205,9 +247,10 @@ function render(fit = false) {
   if (jumps.length)
     warnings.push(`${jumps.length} possible positioning jump${jumps.length === 1 ? '' : 's'} (movement unverified)`);
   $('gap-status').textContent = warnings.join(' · ');
+  const stale = mode === 'live' && freshness?.kind !== 'recent';
   for (const segment of routeSegments) {
     L.polyline(segment.map(index => [points[index].lat, points[index].lon]), {
-      color: '#57b9ef', weight: 3
+      color: stale ? '#748391' : '#57b9ef', weight: 3
     }).on('click', event => inspectPoint(nearestIndex(event, segment, points))).addTo(layer);
   }
 
@@ -222,7 +265,7 @@ function render(fit = false) {
     L.circleMarker([p.lat, p.lon], {
       radius: first ? 5 : last ? 6 : 3,
       weight: 1, color: '#edf2f5',
-      fillColor: first ? '#39b86f' : last ? '#f8b449' : '#57b9ef',
+      fillColor: stale ? '#748391' : first ? '#39b86f' : last ? '#f8b449' : '#57b9ef',
       fillOpacity: 0.9, bubblingMouseEvents: false
     }).bindTooltip(pointText(p, index))
       .on('click', () => inspectPoint(index)).addTo(layer);
@@ -267,16 +310,15 @@ function render(fit = false) {
     lastIndex = Math.min(lastIndex, points.length - 1);
     $('position').value = String(lastIndex);
     showInspection();
-    status(`${points.length} observation${points.length === 1 ? '' : 's'} · ${routeSegments.length} route segment${routeSegments.length === 1 ? '' : 's'}`);
+    feedState('history', 'Historical interval');
+    status(`History · ${points.length} observation${points.length === 1 ? '' : 's'} · ${routeSegments.length} route segment${routeSegments.length === 1 ? '' : 's'}`);
     updateTimeCursor();
     updatePlaceInspector();
   } else {
     $('inspect').hidden = true;
     timeLayer.clearLayers();
     $('time-panel').hidden = true;
-    const p = points.at(-1);
-    status(`${points.length} recent observations · Last received ${localTime(p.time)}`
-      + (jumps.length ? ` · ${jumps.length} possible positioning jump${jumps.length === 1 ? '' : 's'}` : ''));
+    showLiveStatus();
   }
   if (fit) {
     fitObservations(points);

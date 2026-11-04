@@ -22,8 +22,12 @@ the most recently updated run. The selection remains pinned even if another
 producer starts recording.
 
 - **Live** polls up to 1,000 recent observations for the selected run, follows
-  its last received position, and shows its receipt timestamp. No active
-  Android session is necessary to view previously received data.
+  its last received position, and shows its receipt timestamp. **Recent
+  receipts** means the server received a fix within two minutes, not that the
+  phone is online. After two minutes without a receipt, the UI shows **No
+  recent receipts** and dims the route; stored fixes remain available. The
+  selector also labels the age of each listed run. A stopped producer can
+  still be selected in Live mode; choose History for a fixed interval.
 - **History** lets you set **From** and **To** using the browser's *local*
   clock. Press **Show interval** to query `[from, to)`; the server converts the
   timestamps to UTC. Use **Inspect point** to examine the position and receipt
