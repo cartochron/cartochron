@@ -36,6 +36,9 @@ const MAX_PROXIMITY_DISPLAY = 100;
 const WITNESS_CONTEXT_MS = 15 * 60 * 1000;
 const WITNESS_CONTEXT_LIMIT = 1000; // One bounded history page per run, never a complete-history claim.
 let witnessTimelineRevision = 0;
+let witnessAnnotationPair = null;
+let witnessAnnotationCursor = null;
+let witnessAnnotationRevision = 0;
 let placeSelection = null;
 let placeSearchRevision = 0;
 let placeSearchCursor = null;
@@ -211,6 +214,56 @@ function clearWitnessTimeline() {
   $('witness-timeline').hidden = true;
   $('witness-timeline-events').replaceChildren();
   $('witness-timeline-status').textContent = '';
+  witnessAnnotationRevision++;
+  witnessAnnotationPair = null;
+  witnessAnnotationCursor = null;
+  $('witness-annotation-results').replaceChildren();
+  $('witness-annotation-status').textContent = '';
+  $('witness-annotation-next').hidden = true;
+  $('witness-annotation-load').disabled = false;
+  $('witness-annotation-command').textContent = '';
+}
+
+async function loadWitnessAnnotations(more = false) {
+  const pair = witnessAnnotationPair;
+  if (!pair || (more && !witnessAnnotationCursor)) return;
+  const token = ++witnessAnnotationRevision;
+  const query = new URLSearchParams({fix_id: String(pair[0]), limit: '20'});
+  query.append('fix_id', String(pair[1]));
+  if (more) query.set('before', witnessAnnotationCursor);
+  $('witness-annotation-load').disabled = true;
+  $('witness-annotation-next').hidden = true;
+  $('witness-annotation-status').textContent = 'Reading saved operator interpretations…';
+  try {
+    const result = await getJSON('/api/annotations?' + query);
+    if (token !== witnessAnnotationRevision || $('witness-timeline').hidden || mode !== 'history') return;
+    if (!more) $('witness-annotation-results').replaceChildren();
+    for (const note of result.annotations) {
+      const li = document.createElement('li');
+      // User-authored notes are always text, never executable HTML.
+      li.textContent = `Annotation ${note.id} · ${localTime(note.created)} · `
+        + `fix ${note.fix_ids.join(' + ')} · ${note.note}`;
+      $('witness-annotation-results').appendChild(li);
+    }
+    witnessAnnotationCursor = result.next_cursor;
+    $('witness-annotation-next').hidden = !witnessAnnotationCursor;
+    $('witness-annotation-status').textContent = result.annotations.length
+      ? `Loaded ${$('witness-annotation-results').children.length} saved interpretation(s)`
+        + (witnessAnnotationCursor ? ' · More notes remain' : ' · End of notes')
+      : 'No saved interpretations for this exact evidence pair.';
+  } catch (error) {
+    if (token === witnessAnnotationRevision)
+      $('witness-annotation-status').textContent = 'Annotations unavailable: ' + error.message;
+  } finally {
+    if (token === witnessAnnotationRevision) $('witness-annotation-load').disabled = false;
+  }
+}
+
+function witnessAnnotationCommand(pair) {
+  // Exact IDs only: no coordinates, credentials or note contents in arguments.
+  return `docker compose exec -T cartochron python3 annotations.py `
+    + `--db /data/observations.sqlite3 add --fix ${pair.a.id} --fix ${pair.b.id} <<'NOTE'\n`
+    + `State an interpretation and its uncertainty.\nNOTE`;
 }
 
 function receiptMs(point) {
@@ -276,6 +329,14 @@ async function inspectWitnessTimeline(pair) {
   const token = witnessTimelineRevision;
   $('witness-timeline').hidden = false;
   $('witness-timeline-status').textContent = 'Loading recorded context from both runs…';
+  // This pair is a derived comparison; its exact fix IDs are stored evidence.
+  if (![pair.a.id, pair.b.id].every(id => Number.isSafeInteger(id) && id > 0)
+      || pair.a.id === pair.b.id) {
+    $('witness-timeline-status').textContent = 'Cannot annotate this pair: invalid fix IDs.';
+    return;
+  }
+  witnessAnnotationPair = [pair.a.id, pair.b.id];
+  $('witness-annotation-command').textContent = witnessAnnotationCommand(pair);
   const times = [receiptMs(pair.a), receiptMs(pair.b)];
   if (!times.every(Number.isFinite)) {
     $('witness-timeline-status').textContent = 'Cannot inspect this pair: invalid receipt time.';
@@ -1501,6 +1562,8 @@ $('proximity-other').addEventListener('change', resetRunProximity);
 $('proximity-other').addEventListener('input', resetRunProximity);
 for (const id of ['proximity-radius', 'proximity-window', 'proximity-interval', 'from', 'to'])
   $(id).addEventListener('change', resetRunProximity);
+$('witness-annotation-load').addEventListener('click', () => loadWitnessAnnotations());
+$('witness-annotation-next').addEventListener('click', () => loadWitnessAnnotations(true));
 $('proximity-search').addEventListener('click', () => searchRunProximity());
 $('proximity-next').addEventListener('click', () => searchRunProximity(true));
 map.on('click', event => {

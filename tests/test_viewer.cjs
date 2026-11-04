@@ -1176,3 +1176,69 @@ test('Across places offers timeline inspection without fetching context until se
   assert.equal(calls, 3);
   assert.match(ui.element('witness-timeline-status').textContent, /Loaded A: 1 fixes; B: 1 fixes/);
 });
+
+test('witness-pair annotations are loaded only when requested and rendered as text', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  const a = {...point(0, 0), id: 77, track_id: 'run-a'};
+  const b = {...point(1, 1), id: 23, track_id: 'run-b'};
+  ui.context.fixture = {a, b};
+  const requests = [];
+  ui.context.fetch = async url => {
+    requests.push(url);
+    if (url.startsWith('/api/annotations?')) return {ok: true, json: async () => ({
+      annotations: [{id: 1, created: a.time, fix_ids: [23, 77],
+        note: '<script>not executable</script> · receipt clocks uncertain'}], next_cursor: null})};
+    const track = new URL(url, 'http://localhost').searchParams.get('track_id');
+    return {ok: true, json: async () => ({track_id: track,
+      points: [track === 'run-a' ? a : b], truncated: false, next_cursor: null})};
+  };
+  await ui.exec('inspectWitnessTimeline(fixture)');
+  assert.equal(requests.length, 2);
+  assert.match(ui.element('witness-annotation-command').textContent, /--fix 77 --fix 23/);
+  await ui.exec('loadWitnessAnnotations()');
+  assert.equal(requests.length, 3);
+  const params = new URL(requests[2], 'http://localhost').searchParams;
+  assert.deepEqual(params.getAll('fix_id'), ['77', '23']);
+  assert.equal(ui.element('witness-annotation-results').children.length, 1);
+  assert.match(ui.element('witness-annotation-results').children[0].textContent,
+               /<script>not executable<\/script>/);
+  assert.equal(ui.element('witness-annotation-next').hidden, true);
+});
+
+test('annotation pages remain bounded and old responses cannot attach to a new pair', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  const a = {...point(0, 0), track_id: 'run-a'};
+  const b = {...point(1, 1), track_id: 'run-b'};
+  ui.context.fixture = {a, b};
+  const queries = [];
+  ui.context.fetch = async url => {
+    queries.push(url);
+    const params = new URL(url, 'http://localhost').searchParams;
+    if (url.startsWith('/api/annotations?')) return {ok: true, json: async () => ({
+      annotations: [{id: queries.length, created: a.time, fix_ids: [a.id, b.id], note: 'Note'}],
+      next_cursor: params.get('before') ? null : '20'})};
+    return {ok: true, json: async () => ({track_id: params.get('track_id'),
+      points: [], truncated: false, next_cursor: null})};
+  };
+  await ui.exec('inspectWitnessTimeline(fixture)');
+  await ui.exec('loadWitnessAnnotations()');
+  assert.equal(ui.element('witness-annotation-next').hidden, false);
+  await ui.exec('loadWitnessAnnotations(true)');
+  assert.equal(ui.element('witness-annotation-results').children.length, 2);
+  assert.equal(new URL(queries.at(-1), 'http://localhost').searchParams.get('before'), '20');
+  assert.equal(ui.element('witness-annotation-next').hidden, true);
+  const replies = [];
+  ui.context.fetch = () => new Promise(resolve => replies.push(resolve));
+  const pending = ui.exec('loadWitnessAnnotations()');
+  ui.exec('resetRunProximity()');
+  replies[0]({ok: true, json: async () => ({annotations: [
+    {id: 42, created: a.time, fix_ids: [a.id, b.id], note: 'stale'}], next_cursor: null})});
+  await pending;
+  assert.equal(ui.element('witness-timeline').hidden, true);
+  assert.equal(ui.element('witness-annotation-results').children.length, 0);
+  assert.equal(ui.element('witness-annotation-load').disabled, false);
+});

@@ -39,6 +39,8 @@
     #time-results {display:flex;gap:8px;flex-wrap:wrap}
     .time-result {border:1px solid #456273;border-radius:4px;padding:3px 6px}
     #inspect input {flex:1; min-width:140px}
+    #witness-annotation-command {white-space:pre-wrap;overflow-wrap:anywhere}
+    #witness-annotation-results li {white-space:pre-wrap;overflow-wrap:anywhere}
     label {display:flex; align-items:center; gap:7px; color:#bdd0db}
     input,button,select {font:inherit; border:1px solid #536b7b; border-radius:5px; color:#edf2f5; background:#213441; padding:7px 9px}
     button {cursor:pointer}
@@ -175,6 +177,19 @@
         <strong>Evidence timeline · selected pair</strong>
         <p id="witness-timeline-status" role="status"></p>
         <ol id="witness-timeline-events" aria-label="Chronological witness, adjacent fixes and recorded gaps"></ol>
+        <div id="witness-annotation-panel">
+          <strong>Operator annotations · exact witness pair</strong>
+          <p><button id="witness-annotation-load" type="button">Read linked notes</button>
+            <button id="witness-annotation-next" type="button" hidden>Older notes</button>
+            <span id="witness-annotation-status" role="status"></span></p>
+          <ol id="witness-annotation-results" aria-label="Saved investigator interpretations"></ol>
+          <details><summary>How to add a note (operator CLI)</summary>
+            <pre id="witness-annotation-command"></pre>
+            <small>Run from the Cartochron checkout. Replace the example text.
+            Notes are append-only operator interpretations, not recorded location facts.
+            No browser write endpoint is provided.</small>
+          </details>
+        </div>
         <small>Bounded receiver-receipt window around one candidate pair. It lists supporting observations and gaps inside retrieved runs, not inferred presence or movements between fixes.</small>
       </section>
       <small>Each row is an anchor fix and one nearby fix from the other run, compared by receiver receipt time. Click Map pair to see the two fixes without connecting them. Results are not meetings, visits, continuous presence or verified devices. Incomplete pages and candidate caps are reported.</small>
