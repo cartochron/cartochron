@@ -16,7 +16,9 @@
     h1 {font-size:18px; margin:0; letter-spacing:.03em}
     #status, #detail, #page-status, #compare-status {color:#bdd0db; font-variant-numeric:tabular-nums}
     .controls, #history-controls, #inspect {display:flex; align-items:center; flex-wrap:wrap; gap:10px}
-    #history-controls {margin-top:10px}
+    #history-controls, #monitor-controls {margin-top:10px}
+    #monitor-controls {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    #monitor-count {font-size:12px;color:#bdd0db}
     #place-panel {margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #place-panel .controls {margin-bottom:8px}
     #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
@@ -40,7 +42,7 @@
     button[aria-pressed="true"] {background:#155884; border-color:#4ca8e6}
     button:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #78baf2; outline-offset:2px}
     #map {flex:1; min-height:280px; background:#18242d}
-    #track {max-width:290px}
+    #track {max-width:400px}
     #status {font-size:12px}
     #feed-state {font-size:12px; padding:3px 7px; border:1px solid #536b7b;
       border-radius:5px; color:#dae4eb; white-space:nowrap}
@@ -74,7 +76,22 @@
         </div>
       </div>
     </div>
+    <div id="monitor-controls" class="controls">
+      <label>Camera <select id="camera" aria-label="Monitor camera mode">
+        <option value="free" selected>Free (no auto-move)</option>
+        <option value="selected">Follow selected</option>
+        <option value="visible">Follow visible</option>
+      </select></label>
+      <button id="fit-visible" type="button">Fit visible</button>
+      <label><input id="show-inactive" type="checkbox">Show inactive positions</label>
+      <span id="monitor-count" aria-live="polite"></span>
+    </div>
     <div id="history-controls" hidden>
+      <label>Browse <select id="history-filter" aria-label="Filter recording runs">
+        <option value="">All recordings</option>
+      </select></label>
+      <button id="older-runs" type="button" hidden>Older recordings</button>
+      <span id="runs-status"></span>
       <label>From <input id="from" type="datetime-local" step="1"></label>
       <label>To <input id="to" type="datetime-local" step="1"></label>
       <button id="apply" type="button">Show interval</button>

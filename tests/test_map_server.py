@@ -173,7 +173,7 @@ class MapServerTest(unittest.TestCase):
         status, _, body = self.request("GET", "/help")
         self.assertEqual(status, 200)
         page = body.decode("utf-8")
-        for topic in ("Live", "History", "Inspect point", "Shared time",
+        for topic in ("Monitor", "History", "Inspect point", "Shared time",
                       "Inspect place", "Comparison time", "missing time"):
             with self.subTest(topic=topic):
                 self.assertIn(topic, page)

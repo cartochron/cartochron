@@ -40,10 +40,14 @@ function viewer() {
     openOn() { return this; },
   };
   const fitted = [];
+  const pans = [];
+  const viewport = {contains: () => false, pad() {return this;}};
   const map = {
-    setView() { return this; }, fitBounds(bounds) { fitted.push(bounds.coords); },
+    setView() { return this; },
+    fitBounds(bounds) { fitted.push(bounds.coords); },
+    getBounds() { return viewport; }, getZoom() { return 14; },
     on(name, fn) {this.events = this.events || {}; this.events[name] = fn; return this;},
-    panTo() {}, invalidateSize() {}, removeLayer() {},
+    panTo(value) { pans.push(value); }, closePopup() {}, invalidateSize() {}, removeLayer() {},
     latLngToLayerPoint(value) {
       const lat = Array.isArray(value) ? value[0] : value.lat;
       const lon = Array.isArray(value) ? value[1] : value.lng;
@@ -92,7 +96,7 @@ function viewer() {
     exec('points = fixture; mode = fixtureMode; selectedTrack = fixtureTrack; lastSignature = ""; lastIndex = 0; render(true)');
     return groups[0].layers;
   }
-  return {render, exec, element, group: groups[0], groups, map, popup, context, fitted};
+  return {render, exec, element, group: groups[0], groups, map, popup, context, fitted, pans, viewport};
 }
 
 function point(i, minutes = i) {
@@ -427,6 +431,9 @@ function monitorFixtures(ui) {
   ui.context.fetch = async url => {
     if (url === '/api/monitor') return {ok: true, json: async () => ({entries: ui.context.monitorFixture})};
     if (url === '/api/tracks') return {ok: true, json: async () => ({tracks: ui.context.runFixture})};
+    if (url === '/api/sources') return {ok: true, json: async () => ({sources: []})};
+    if (url.startsWith('/api/runs?')) return {ok: true, json: async () =>
+      ({tracks: ui.context.runFixture, next_cursor: null})};
     if (url.startsWith('/api/points/recent')) return {ok: true, json: async () => ({points: []})};
     if (url.startsWith('/api/points?')) return {ok: true, json: async () => ({points: [], next_cursor: null})};
     throw new Error('unexpected URL: ' + url);
@@ -490,4 +497,164 @@ test('Monitor labels mixed source assertions without treating the latest label a
   const item = ui.element('track').children[0];
   assert.ok(item.text.includes(injected));
   assert.equal(item.innerHTML, undefined);
+});
+
+test('Monitor displays current locations from two distant channels without joining their tracks', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  const now = new Date(Date.now() - 10_000).toISOString();
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88, last: now};
+  ui.context.monitorFixture[1] = {...ui.context.monitorFixture[1], lat: 50.08, lon: 14.41, last: now};
+  await ui.exec('refreshTracks()');
+  const markers = ui.exec('monitorLayer.layers');
+  assert.equal(markers.length, 2);
+  assert.equal(ui.exec('monitorPositions().length'), 2);
+  assert.equal(markers[0].positions[0], 47.75);
+  assert.equal(markers[1].positions[0], 50.08);
+  assert.equal(ui.exec('overlayLayers.size'), 0); // Not joined as one route.
+  assert.equal(ui.element('monitor-count').textContent.includes('2 positions shown'), true);
+  ui.element('camera').value = 'visible';
+  ui.element('camera').events.change();
+  assert.equal(JSON.stringify(ui.fitted.at(-1)), JSON.stringify([[47.75, 27.88], [50.08, 14.41]]));
+  assert.equal(ui.exec('cameraMode'), 'visible');
+});
+
+test('Free camera never pans on new GPS observations; manual pan disables follow', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88};
+  await ui.exec('refreshTracks()');
+  ui.exec('initialMonitorFit = false');
+  ui.element('camera').value = 'free';
+  ui.element('camera').events.change();
+  const first = {...point(0), time: new Date().toISOString()};
+  ui.context.fixturePoints = [first];
+  ui.exec('points=fixturePoints; selectedTrack="oneplus-new"; render(false)');
+  ui.context.fixturePoints = [first, {...first, id: 2, lat: 47.751, time: new Date().toISOString()}];
+  ui.exec('points=fixturePoints; render(false)');
+  assert.equal(ui.pans.length, 0);
+  assert.equal(ui.fitted.length, 0);
+  ui.element('camera').value = 'selected';
+  ui.element('camera').events.change();
+  assert.equal(ui.pans.length, 1);
+  ui.map.events.dragstart();
+  assert.equal(ui.exec('cameraMode'), 'free');
+  assert.equal(ui.element('camera').value, 'free');
+  ui.exec('render(false)');
+  assert.equal(ui.pans.length, 1);
+});
+
+test('Follow visible only reframes when a selected location moves outside the inner viewport', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  const now = new Date().toISOString();
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88, last: now};
+  ui.context.monitorFixture[1] = {...ui.context.monitorFixture[1], lat: 50.08, lon: 14.41, last: now};
+  await ui.exec('refreshTracks()');
+  ui.element('camera').value = 'visible';
+  ui.element('camera').events.change();
+  const initial = ui.fitted.length;
+  ui.viewport.contains = () => true;
+  ui.exec('updateMonitorCamera()');
+  assert.equal(ui.fitted.length, initial);
+  ui.viewport.contains = () => false;
+  ui.exec('updateMonitorCamera()');
+  assert.equal(ui.fitted.length, initial + 1);
+  ui.map.events.zoomstart();
+  assert.equal(ui.exec('cameraMode'), 'free');
+});
+
+test('Inactive positions stay hidden unless selected or explicitly enabled', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88};
+  ui.context.monitorFixture[1] = {...ui.context.monitorFixture[1], lat: 50.08, lon: 14.41};
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.exec('monitorLayer.layers.length'), 1); // Stale LG omitted.
+  ui.element('show-inactive').checked = true;
+  ui.element('show-inactive').events.change();
+  assert.equal(ui.exec('monitorLayer.layers.length'), 2);
+  ui.exec('monitorLayer.layers[1]').events.click();
+  assert.equal(ui.exec('selectedMonitorKey'), 'channel:lg');
+  assert.equal(ui.exec('selectedTrack'), 'lg-old');
+  assert.equal(ui.exec('points.length'), 0); // New run data will load separately.
+});
+
+test('History pages past the catalogue limit and filters by exact channel', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  await ui.exec('refreshTracks()');
+  ui.exec('setMode("history")');
+  // Older run pages are not limited to the latest 100-run selector.
+  ui.context.fetch = async url => {
+    if (url.startsWith('/api/runs?')) {
+      const before = new URL('http://localhost' + url).searchParams.get('before');
+      return {ok: true, json: async () => before
+        ? {tracks: [{track_id: 'old-page-run', first: new Date().toISOString(), last: new Date().toISOString(), count: 1}], next_cursor: null}
+        : {tracks: [{track_id: 'new-page-run', first: new Date().toISOString(), last: new Date().toISOString(), count: 2}], next_cursor: '123'}};
+    }
+    if (url.startsWith('/api/points?')) return {ok: true, json: async () => ({points: [], next_cursor: null})};
+    return {ok: true, json: async () => ({points: []})};
+  };
+  await ui.exec('loadRunPage(true)');
+  assert.equal(ui.element('older-runs').hidden, false);
+  assert.equal(ui.exec('historyRunList.length'), 1);
+  await ui.exec('loadRunPage(false)');
+  assert.equal(ui.exec('historyRunList.length'), 2);
+  assert.equal(ui.element('older-runs').hidden, true);
+  assert.equal(ui.element('track').children.length >= 2, true);
+  ui.element('history-filter').value = 'channel:oneplus';
+  ui.element('history-filter').events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(ui.exec('historyFilter'), 'channel:oneplus');
+  assert.equal(ui.exec('historyRunList.length'), 1);
+});
+
+test('Monitor and History use operator display labels as text, not as HTML', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  const hostile = '<img src=x onerror=alert(1)>';
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], channel_label: hostile, lat: 47.75, lon: 27.88};
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.element('track').children[0].text.includes(hostile), true);
+  assert.equal(ui.exec('monitorLayer.layers[0].tooltip.textContent').includes(hostile), true);
+  assert.equal(ui.exec('monitorLayer.layers[0].tooltip.innerHTML'), undefined);
+});
+
+test('Identical coordinates show one marker with separate source choices, not a merged run', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  const now = new Date().toISOString();
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88, last: now};
+  ui.context.monitorFixture[1] = {...ui.context.monitorFixture[1], lat: 47.75, lon: 27.88, last: now};
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.exec('monitorPositions().length'), 2);
+  assert.equal(ui.exec('monitorLayer.layers.length'), 1);
+  const pin = ui.exec('monitorLayer.layers[0]');
+  assert.match(pin.tooltip.textContent, /2 sources at identical reported coordinates/);
+  pin.events.click();
+  assert.equal(ui.popup.content.children.length, 2);
+  assert.match(ui.popup.content.children[0].textContent, /oneplus/);
+  assert.match(ui.popup.content.children[1].textContent, /lg/);
+  ui.popup.content.children[1].events.click();
+  assert.equal(ui.exec('selectedMonitorKey'), 'channel:lg');
+  assert.equal(ui.exec('selectedTrack'), 'lg-old');
+  assert.equal(ui.exec('overlayLayers.size'), 0);
+});
+
+test('Explicit selection focuses a different city once, without future free-camera jumps', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  const now = new Date().toISOString();
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], lat: 47.75, lon: 27.88, last: now};
+  ui.context.monitorFixture[1] = {...ui.context.monitorFixture[1], lat: 50.08, lon: 14.41, last: now};
+  await ui.exec('refreshTracks()');
+  ui.element('track').value = 'channel:lg';
+  ui.element('track').events.change();
+  // Loading the new run uses an explicit one-shot focus, rather than fitting all.
+  ui.exec('updateMonitorCamera()');
+  assert.equal(ui.pans.length, 1);
+  assert.equal(ui.pans[0][0], 50.08);
+  ui.exec('updateMonitorCamera()');
+  assert.equal(ui.pans.length, 1);
 });

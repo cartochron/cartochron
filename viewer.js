@@ -25,11 +25,22 @@ const layer = L.layerGroup().addTo(map);
 const overlayLayers = new Map();
 const timeLayer = L.layerGroup().addTo(map);
 const placeLayer = L.layerGroup().addTo(map);
+const monitorLayer = L.layerGroup().addTo(map);
 let placeSelection = null;
 
 let catalogue = [];
 let monitorCatalogue = [];
+let sourceCatalogue = [];
 let selectedMonitorKey = '';
+let cameraMode = 'free';
+let initialMonitorFit = 'visible';
+let cameraMoving = false;
+let historyRunList = [];
+let historyLoaded = false;
+let historyRunCursor = null;
+let historyRunBusy = false;
+let historyRunGeneration = 0;
+let historyFilter = '';
 let historyTrack = '';
 let selectedTrack = '';
 const visibleOverlays = new Set();
@@ -62,7 +73,10 @@ async function getJSON(url) {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 }
-function trackInfo() { return catalogue.find(t => t.track_id === selectedTrack); }
+function trackInfo() {
+  return historyRunList.find(t => t.track_id === selectedTrack)
+    || catalogue.find(t => t.track_id === selectedTrack);
+}
 function receiptState(time, now = Date.now()) {
   const received = Date.parse(time);
   const age = now - received;
@@ -81,9 +95,12 @@ function feedState(kind, label) {
 }
 function runLabel(record) {
   // History displays exact run IDs and stable receipt times; no ticking ages.
-  const name = record.source_label || record.channel_id || 'unassigned';
-  return `${record.track_id} · ${name}`
-    + (record.last ? ` · ${localTime(record.last)}` : '');
+  const name = record.channel_label || record.source_label || record.channel_id || 'Unattributed';
+  const first = record.first ? localTime(record.first) : '';
+  const last = record.last ? localTime(record.last) : '';
+  return `${name} · ${first && last ? `${first} – ${last}` : last}`
+    + (record.count !== undefined ? ` · ${record.count} fixes` : '')
+    + ` · ${record.track_id}`;
 }
 function monitorKey(item) { return `${item.kind}:${item.id}`; }
 function monitorName(item) {
@@ -92,8 +109,8 @@ function monitorName(item) {
   if (item.kind === 'source') return item.source_label || item.id;
   // A channel's source assertions can differ across runs; do not label
   // mixed historical provenance using only its newest source's label.
-  if (item.mixed_sources) return `${item.id} (mixed source assertions)`;
-  return item.source_label ? `${item.source_label} · ${item.id}` : item.id;
+  if (item.mixed_sources) return `${item.channel_label || item.id} (mixed source assertions)`;
+  return item.channel_label || (item.source_label ? `${item.source_label} · ${item.id}` : item.id);
 }
 function monitorLabel(item) {
   const freshness = receiptState(item.last);
@@ -115,15 +132,183 @@ function updateSelector() {
     select.value = selectedMonitorKey;
     select.title = 'One latest recording per identified source or channel; unassigned runs remain separate in History';
   } else {
-    for (const track of catalogue) select.add(new Option(runLabel(track), track.track_id));
-    if (selectedTrack && !catalogue.some(t => t.track_id === selectedTrack))
+    const choices = historyLoaded ? historyRunList : catalogue;
+    for (const track of choices) select.add(new Option(runLabel(track), track.track_id));
+    if (selectedTrack && !choices.some(t => t.track_id === selectedTrack))
       select.add(new Option(selectedTrack + ' (not in recent list)', selectedTrack));
-    select.disabled = !catalogue.length;
-    if (!catalogue.length) select.add(new Option('No recordings', ''));
+    select.disabled = !choices.length && !selectedTrack;
+    if (!choices.length && !selectedTrack) select.add(new Option('No recordings', ''));
     select.value = selectedTrack;
-    select.title = 'Showing the 100 most recently updated runs; older runs remain stored';
+    select.title = 'Exact recorded runs; choose a channel/source filter or load older recordings';
   }
 }
+function updateHistoryFilter() {
+  const select = $('history-filter');
+  const options = [new Option('All recordings', '')];
+  const seen = new Set();
+  for (const item of monitorCatalogue) {
+    if (item.channel_id && !seen.has(`channel:${item.channel_id}`)) {
+      seen.add(`channel:${item.channel_id}`);
+      options.push(new Option(`Channel · ${item.channel_label || item.channel_id}`,
+        `channel:${item.channel_id}`));
+    }
+  }
+  for (const source of sourceCatalogue) {
+    if (!seen.has(`source:${source.source_id}`)) {
+      seen.add(`source:${source.source_id}`);
+      options.push(new Option(`Source · ${source.label}`, `source:${source.source_id}`));
+    }
+  }
+  select.replaceChildren(...options);
+  select.value = historyFilter;
+}
+
+function monitorPositions() {
+  return monitorCatalogue.filter(item =>
+    Number.isFinite(item.lat) && Number.isFinite(item.lon) &&
+    (item.kind !== 'unattributed' || monitorKey(item) === selectedMonitorKey) &&
+    (monitorKey(item) === selectedMonitorKey || $('show-inactive').checked ||
+     receiptState(item.last).kind === 'recent'));
+}
+
+function selectMonitor(item) {
+  const key = monitorKey(item);
+  if (key === selectedMonitorKey) return;
+  selectedMonitorKey = key;
+  selectedTrack = item.track_id;
+  initialMonitorFit = cameraMode === 'visible' ? 'visible' : 'selected'; // Operator choice.
+  updateSelector();
+  clearView();
+  refreshLive();
+}
+
+function updateMonitorMarkers() {
+  monitorLayer.clearLayers();
+  if (mode !== 'live') return;
+  const items = monitorPositions();
+  // Identical reported coordinates would hide all but the top marker. Combine
+  // only exactly coincident symbols; do not merge source histories or fixes.
+  const groups = new Map();
+  for (const item of items) {
+    const key = `${item.lat},${item.lon}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  for (const group of groups.values()) {
+    const chosen = group.some(item => monitorKey(item) === selectedMonitorKey);
+    const recent = group.some(item => receiptState(item.last).kind === 'recent');
+    const first = group[0];
+    const p = [first.lat, first.lon];
+    const label = document.createElement('span');
+    label.textContent = group.length === 1
+      ? `${monitorName(first)} · ${recent ? 'Recent receipt' : 'No verified recent receipt'} · ${localTime(first.last)}`
+      : `${group.length} sources at identical reported coordinates · Click to choose`;
+    L.circleMarker(p, {radius: group.length > 1 ? 11 : chosen ? 10 : 8,
+      weight: chosen ? 3 : 2, color: chosen ? '#132936' : '#edf2f5',
+      fillColor: recent ? (chosen ? '#f8b449' : '#68ccae') : '#748391',
+      fillOpacity: 0.95, bubblingMouseEvents: false})
+      .bindTooltip(label)
+      .on('click', () => {
+        if (group.length === 1) return selectMonitor(first);
+        const choices = document.createElement('div');
+        for (const item of group) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = `${monitorName(item)} · ${localTime(item.last)}`;
+          button.addEventListener('click', () => { map.closePopup(); selectMonitor(item); });
+          choices.appendChild(button);
+        }
+        L.popup().setLatLng(p).setContent(choices).openOn(map);
+      }).addTo(monitorLayer);
+  }
+  $('monitor-count').textContent = `${items.length} positions shown · receipt status, not connectivity`;
+}
+
+function moveCamera(action, force = false) {
+  if (mode !== 'live') return;
+  const items = monitorPositions();
+  let positions;
+  if (action === 'selected') {
+    const chosen = items.find(item => monitorKey(item) === selectedMonitorKey);
+    positions = chosen ? [[chosen.lat, chosen.lon]] : [];
+  } else if (action === 'visible') {
+    positions = items.map(item => [item.lat, item.lon]);
+  } else return;
+  if (!positions.length) return;
+  const inner = map.getBounds().pad(-0.25);
+  if (!force && positions.every(pos => inner.contains(pos))) return;
+  cameraMoving = true;
+  try {
+    if (action === 'selected' || positions.length === 1) {
+      map.panTo(positions[0], {animate: false});
+    } else {
+      // Never zoom in on each update. Framing distant cities can zoom out.
+      map.fitBounds(L.latLngBounds(positions), {
+        padding: [40, 40], maxZoom: Math.min(map.getZoom(), 16), animate: false
+      });
+    }
+  } finally { cameraMoving = false; }
+}
+
+function updateMonitorCamera() {
+  if (mode !== 'live') return;
+  if (initialMonitorFit) {
+    moveCamera(initialMonitorFit, true);
+    initialMonitorFit = false;
+  } else if (cameraMode !== 'free') moveCamera(cameraMode);
+}
+
+function updateRunPageStatus() {
+  $('older-runs').hidden = !historyRunCursor || mode !== 'history';
+  $('runs-status').textContent = historyRunList.length
+    ? `${historyRunList.length}${historyRunCursor ? '+' : ''} runs listed`
+    : historyLoaded ? 'No runs for this selection' : 'Loading recordings…';
+}
+
+async function loadRunPage(reset = false) {
+  if (reset) {
+    historyRunGeneration++;
+    historyRunCursor = null;
+    historyRunList = [];
+    historyLoaded = false;
+  } else if (!historyRunCursor || historyRunBusy) return;
+  const token = historyRunGeneration;
+  historyRunBusy = true;
+  updateRunPageStatus();
+  try {
+    const query = new URLSearchParams({limit: '50'});
+    if (historyFilter.startsWith('channel:')) query.set('channel_id', historyFilter.slice(8));
+    if (historyFilter.startsWith('source:')) query.set('source_id', historyFilter.slice(7));
+    if (!reset && historyRunCursor) query.set('before', historyRunCursor);
+    const response = await getJSON('/api/runs?' + query);
+    if (token !== historyRunGeneration) return;
+    historyRunList.push(...response.tracks);
+    historyRunCursor = response.next_cursor;
+    historyLoaded = true;
+    if (mode === 'history') {
+      if (!historyTrack && historyRunList.length) {
+        historyTrack = historyRunList[0].track_id;
+        selectedTrack = historyTrack;
+        historyDefaults();
+        loadHistory();
+      }
+      updateSelector();
+      renderLayerPanel();
+    }
+  } catch (error) {
+    if (token === historyRunGeneration) {
+      historyLoaded = true;
+      updateRunPageStatus();
+      $('runs-status').textContent = 'Cannot browse runs: ' + error.message;
+    }
+  } finally {
+    if (token === historyRunGeneration) {
+      historyRunBusy = false;
+      $('older-runs').hidden = !historyRunCursor || mode !== 'history';
+    }
+  }
+}
+
 function showLiveStatus() {
   if (mode !== 'live') return;
   if (!points.length) {
@@ -157,6 +342,7 @@ function clearView() {
   overlayPoints.clear();
   timeLayer.clearLayers();
   placeLayer.clearLayers();
+  if (mode !== 'live') monitorLayer.clearLayers();
   placeSelection = null;
   $('place-results').replaceChildren();
   $('place-status').textContent = 'Click a location on the map to inspect loaded observations.';
@@ -359,11 +545,10 @@ function render(fit = false) {
     $('time-panel').hidden = true;
     showLiveStatus();
   }
-  if (fit) {
-    fitObservations(points);
-  } else if (mode === 'live') {
-    const latest = points.at(-1);
-    map.panTo([latest.lat, latest.lon], {animate: false});
+  if (mode === 'history' && fit) fitObservations(points);
+  if (mode === 'live') {
+    updateMonitorMarkers();
+    updateMonitorCamera();
   }
 }
 
@@ -398,6 +583,7 @@ function setMode(next) {
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
   $('history').setAttribute('aria-pressed', String(mode === 'history'));
   $('history-controls').hidden = mode !== 'history';
+  $('monitor-controls').hidden = mode !== 'live';
   if (mode !== 'history') {
     $('layers-panel').hidden = true;
     $('place-panel').hidden = true;
@@ -415,7 +601,13 @@ function setMode(next) {
   if (mode === 'history') {
     historyDefaults();
     loadHistory();
-  } else refreshLive();
+    loadRunPage(true);
+    updateRunPageStatus();
+  } else {
+    initialMonitorFit = cameraMode === 'free' ? 'visible' : cameraMode;
+    updateMonitorMarkers();
+    refreshLive();
+  }
   // The visible area changes as controls appear; Leaflet needs its size updated.
   requestAnimationFrame(() => map.invalidateSize());
 }
@@ -424,11 +616,13 @@ async function refreshTracks() {
   if (tracksBusy) return;
   tracksBusy = true;
   try {
-    const [runs, monitored] = await Promise.all([
-      getJSON('/api/tracks'), getJSON('/api/monitor')
+    const [runs, monitored, sources] = await Promise.all([
+      getJSON('/api/tracks'), getJSON('/api/monitor'), getJSON('/api/sources')
     ]);
     catalogue = runs.tracks;
     monitorCatalogue = monitored.entries;
+    sourceCatalogue = sources.sources;
+    updateHistoryFilter();
     const previous = selectedTrack;
     if (!historyTrack && catalogue.length) historyTrack = catalogue[0].track_id;
     if (mode === 'live') {
@@ -439,6 +633,8 @@ async function refreshTracks() {
       selectedTrack = historyTrack;
     }
     updateSelector();
+    updateMonitorMarkers();
+    if (mode === 'live' && points.length) updateMonitorCamera();
     visibleOverlays.delete(selectedTrack);
     renderLayerPanel();
     if (selectedTrack !== previous) {
@@ -446,8 +642,7 @@ async function refreshTracks() {
       if (mode === 'history') {historyDefaults(); loadHistory();}
       else refreshLive();
     } else if (!selectedTrack) status('Waiting for observations');
-    if (runs.truncated && mode === 'history')
-      $('page-status').textContent = 'Run selector shows only the 100 most recent runs';
+    if (mode === 'history') updateRunPageStatus();
   } catch (error) { status('Observation catalogue unavailable: ' + error.message); }
   finally { tracksBusy = false; }
 }
@@ -591,7 +786,8 @@ function updatePlaceInspector() {
 function renderLayerPanel() {
   const panel = $('layers-list');
   panel.replaceChildren();
-  for (const record of catalogue) {
+  const choices = mode === 'history' && historyLoaded ? historyRunList : catalogue;
+  for (const record of choices) {
     const track = record.track_id;
     const row = document.createElement('label');
     row.className = 'track-layer';
@@ -613,7 +809,7 @@ function renderLayerPanel() {
     row.appendChild(input);
     const label = document.createElement('span');
     label.textContent = (track === selectedTrack ? `${track} (focused)` : track)
-      + (record.source_label ? ` · ${record.source_label}` : ' · unassigned');
+      + ` · ${record.channel_label || record.source_label || record.channel_id || 'unassigned'}`;
     row.appendChild(label);
     panel.appendChild(row);
   }
@@ -702,10 +898,42 @@ async function loadOverlays() {
   }
 }
 
+$('camera').addEventListener('change', () => {
+  cameraMode = $('camera').value;
+  initialMonitorFit = false;
+  if (cameraMode !== 'free') moveCamera(cameraMode, true);
+});
+$('fit-visible').addEventListener('click', () => {
+  initialMonitorFit = false;
+  moveCamera('visible', true);
+});
+$('show-inactive').addEventListener('change', () => {
+  updateMonitorMarkers();
+  updateMonitorCamera();
+});
+function releaseCamera() {
+  if (mode === 'live' && !cameraMoving) {
+    cameraMode = 'free';
+    initialMonitorFit = false;
+    $('camera').value = 'free';
+  }
+}
+map.on('dragstart', releaseCamera);
+map.on('zoomstart', releaseCamera);
+$('history-filter').addEventListener('change', () => {
+  historyFilter = $('history-filter').value;
+  historyTrack = '';
+  selectedTrack = '';
+  visibleOverlays.clear();
+  clearView();
+  loadRunPage(true);
+});
+$('older-runs').addEventListener('click', () => loadRunPage(false));
 $('track').addEventListener('change', () => {
   if (mode === 'live') {
     selectedMonitorKey = $('track').value;
     selectedTrack = monitorCatalogue.find(item => monitorKey(item) === selectedMonitorKey)?.track_id || '';
+    initialMonitorFit = cameraMode === 'visible' ? 'visible' : 'selected';
   } else {
     historyTrack = $('track').value;
     selectedTrack = historyTrack;
