@@ -249,6 +249,12 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error:
                 return self._json(503, {"error": "observation storage unavailable"})
             return self._json(200, data)
+        if path == "/api/monitor" and not urlsplit(self.path).query:
+            try:
+                data = self.server.store.monitor()
+            except sqlite3.Error:
+                return self._json(503, {"error": "observation storage unavailable"})
+            return self._json(200, data)
         if path == "/api/tracks" and not urlsplit(self.path).query:
             try:
                 data = self.server.store.tracks()

@@ -15,6 +15,7 @@ MAX_RECENT_POINTS = 1000
 SCHEMA_VERSION = 4
 MAX_TRACKS = 100
 MAX_SOURCES = 100
+MAX_MONITOR = 100
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
 TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 CHANNEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -356,6 +357,56 @@ class ObservationStore:
             ],
             "truncated": len(rows) > MAX_TRACKS,
         }
+
+    def monitor(self):
+        """One latest run per reported channel, otherwise enrolled source.
+
+        Unattributed runs have no shared identity. Only their newest run is
+        exposed as an explicit fallback; the others remain separate in History.
+        Choose the newest *inserted* observation, not the greatest clock value.
+        No points or runs are ever combined into a synthetic recording.
+        """
+        with self._lock:
+            rows = self._db.execute("""
+                WITH fixes AS (
+                    SELECT track_id, COUNT(*) AS count, MAX(id) AS last_id
+                    FROM observations GROUP BY track_id
+                ), identified AS (
+                    SELECT f.*, latest.received_ms AS last_ms, r.channel_id, r.source_id,
+                           s.label AS source_label,
+                           CASE WHEN r.channel_id IS NOT NULL THEN 'channel'
+                                WHEN r.source_id IS NOT NULL THEN 'source'
+                                ELSE 'unattributed' END AS kind,
+                           COALESCE(r.channel_id, r.source_id, '') AS identity
+                    FROM fixes f
+                    JOIN observations latest ON latest.id = f.last_id
+                    LEFT JOIN runs r ON r.track_id = f.track_id
+                    LEFT JOIN sources s ON s.source_id = r.source_id
+                ), ranked AS (
+                    SELECT *,
+                           COUNT(*) OVER (PARTITION BY kind, identity) AS run_count,
+                           MIN(COALESCE(source_id, '')) OVER
+                               (PARTITION BY kind, identity) AS source_min,
+                           MAX(COALESCE(source_id, '')) OVER
+                               (PARTITION BY kind, identity) AS source_max,
+                           ROW_NUMBER() OVER
+                               (PARTITION BY kind, identity ORDER BY last_id DESC) AS rank
+                    FROM identified
+                )
+                SELECT kind, identity, track_id, source_id, source_label,
+                       channel_id, last_ms, run_count, source_min != source_max
+                FROM ranked WHERE rank = 1
+                ORDER BY last_id DESC LIMIT ?
+            """, (MAX_MONITOR + 1,)).fetchall()
+        return {"entries": [
+            {"kind": kind, "id": identity if kind != "unattributed" else track,
+             "track_id": track, "source_id": source_id, "source_label": source_label,
+             "channel_id": channel_id, "runs": run_count,
+             "mixed_sources": bool(mixed),
+             "last": self._timestamp(last, "milliseconds")}
+            for kind, identity, track, source_id, source_label, channel_id,
+            last, run_count, mixed in rows[:MAX_MONITOR]
+        ], "truncated": len(rows) > MAX_MONITOR}
 
     def history(self, track_id, *, from_ms=None, to_ms=None, limit=MAX_RECENT_POINTS,
                 after=None):
