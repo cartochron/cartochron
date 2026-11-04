@@ -1,5 +1,11 @@
 # NEWS
 
+## Unreleased
+
+- Add an explicit database-wide place inspector with cross-run observation
+  provenance, exact radius checks, bounded paginated results, and a v6
+  spatial lookup index. It does not infer visits or continuous presence.
+
 ## 0.1.0 — 2026-11-04
 
 Initial release of Cartochron, an investigation-oriented map of *reported*

@@ -40,6 +40,7 @@ The API exposes these relevant GET operations:
 | `GET /api/runs?limit=50&before=...` | Paginated run catalogue, optionally filtered by exact `channel_id` or `source_id` |
 | `GET /api/sources` | Up to 100 enrolled source summaries (protected by the same HTTP authentication) |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
+| `GET /api/place/observations?lat=...&lon=...&radius_m=100` | Recorded observations near one point across all stored runs, with bounded pages |
 
 For example, with a local server containing data for `lab-run-1`:
 
@@ -109,6 +110,47 @@ not evidence that a source remains connected or is currently present there.
 The Leaflet page uses these APIs for track selection and historical navigation.
 The unfiltered endpoint remains available for older clients and still follows
 the most recently ingested run.
+
+## Search a place across recorded runs (post-v0.1)
+
+In History, **Inspect place** retains the lightweight search of *loaded*
+points. Click **Search recorded history** to query all stored runs at that
+location, not just the current display. The read-only endpoint is:
+
+```text
+GET /api/place/observations?lat=47&lon=28&radius_m=100&limit=50
+```
+
+`lat` and `lon` are finite coordinates. `radius_m` is 10–1000 metres;
+`limit` is 1–100 matching fixes (default 50). Results are sorted by the
+**insertion order of observations**, newest first, not by potentially
+unreliable producer measurement times. Each match contains its original
+observation fields, distance from the queried point, exact `track_id`, and
+nullable immutable source/channel IDs and operator-owned display labels.
+Distance is derived from the *reported coordinates*, not ground-truth
+positions, and reported accuracy may be absent.
+
+The server first selects observations in a conservative indexed bounding box,
+then applies great-circle distance to each candidate. A response transfers
+at most 2,000 candidates into Python for checking, but the SQLite lookup can
+scan/sort additional indexed entries. Thus this is **not a fixed CPU-time
+bound**; use a trusted receiver and consider narrower radius/time-scoped
+queries for very large histories.
+
+`next_cursor` (or null) is the ID of the last examined candidate, not
+necessarily the last *matching* observation. Pass it as `before=<cursor>` to
+continue. A page can have **zero matches and still have a cursor** if further
+candidates remain. Stop only when the cursor is null. `truncated` indicates
+whether additional pages may exist; `scanned` reports the candidate count for
+that page. Like the run browser, this is **not a frozen snapshot** during
+concurrent ingestion. No reported fix is converted into an inferred visit,
+continuous presence, or a claim about a person/device.
+
+The initial database-wide search does not yet provide time-window filters,
+aggregate visits or dwell inference. It exposes individual evidence first.
+Database schema v6 adds only a latitude/longitude lookup index on top of v5;
+back up the database before upgrading and do not downgrade the running
+receiver afterward.
 
 ## Manual ingestion test
 

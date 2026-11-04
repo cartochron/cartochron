@@ -142,10 +142,21 @@ proof that the source was somewhere else.
 ### 6. Inspect a place: who was recorded near this area?
 
 In History, open **Inspect place**, select a radius, and click an area. The
-results come from **loaded, visible recordings**, not a search of all stored
-history. Record which runs and pages were loaded and the radius used before
+first list examines **loaded, visible recordings**. Its scope is deliberately
+limited to the selected runs and loaded pages.
+
+Press **Search recorded history** to ask a different question: *which individual
+recorded observations, across all saved runs, fall within this radius?* This
+second list returns the supporting observations with exact run IDs, channel
+and source labels if known, receipt times, reported fix provenance and computed
+distance. Use **Older search page** until the cursor is exhausted. A page with
+no matches may still have older candidates; do not interpret it as complete.
+The search is not a frozen database snapshot while acquisition continues.
+
+Record the coordinates, radius, time of query and completion state before
 reporting any finding. A geographic distance computed from reported
-coordinates is not a measured distance between physical people.
+coordinates is not a measured distance between physical people. Repeated fixes
+are not automatically independent measurements or evidence of a visit/dwell.
 
 ## Part V — Three worked lines of inquiry
 

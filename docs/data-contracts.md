@@ -1,6 +1,6 @@
 # Cartochron data contracts
 
-## Implemented: location observation protocol (v5 database)
+## Implemented: location observation protocol (v6 database)
 
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
@@ -45,6 +45,14 @@ changing the displayed source label does not rewrite history.
 The browser may draw connecting lines, but it cannot infer movement during gaps.
 Time queries use `[from, to)` on the server's receipt clock. An old run migrated
 from v1 stays unassigned; no attempt is made to infer device identity.
+
+The post-v0.1 place investigation endpoint returns **only individual recorded
+observations** that pass an exact-radius check after an indexed bounding-box
+candidate search. It does not infer visits, presence between observations,
+repeated activity, or physical source identity. Result pages and candidate
+scans are bounded, and a cursor can exist even for an empty result page. The
+schema v6 migration adds a lookup index only; original observations and run
+attributions remain untouched.
 
 ## Not implemented: imported evidence or communications
 
