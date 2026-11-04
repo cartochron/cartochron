@@ -28,6 +28,9 @@ const placeLayer = L.layerGroup().addTo(map);
 let placeSelection = null;
 
 let catalogue = [];
+let monitorCatalogue = [];
+let selectedMonitorKey = '';
+let historyTrack = '';
 let selectedTrack = '';
 const visibleOverlays = new Set();
 const overlayPoints = new Map();
@@ -77,19 +80,55 @@ function feedState(kind, label) {
   $('feed-state').setAttribute('data-state', kind);
 }
 function runLabel(record) {
-  // A source label is descriptive, not proof that a particular device produced a fix.
-  const name = record.source_label ? `${record.track_id} · ${record.source_label}`
-    : `${record.track_id} · unassigned`;
-  if (!record.last) return name;
-  const receipt = receiptState(record.last);
-  return `${name} · ${receipt.kind === 'recent' ? 'recent receipts' :
-    receipt.kind === 'stale' ? 'last received' : 'unknown time'} ${receipt.label}`;
+  // History displays exact run IDs and stable receipt times; no ticking ages.
+  const name = record.source_label || record.channel_id || 'unassigned';
+  return `${record.track_id} · ${name}`
+    + (record.last ? ` · ${localTime(record.last)}` : '');
+}
+function monitorKey(item) { return `${item.kind}:${item.id}`; }
+function monitorName(item) {
+  if (item.kind === 'unattributed')
+    return `Unattributed newest run (${item.runs} unassigned runs)`;
+  if (item.kind === 'source') return item.source_label || item.id;
+  // A channel's source assertions can differ across runs; do not label
+  // mixed historical provenance using only its newest source's label.
+  if (item.mixed_sources) return `${item.id} (mixed source assertions)`;
+  return item.source_label ? `${item.source_label} · ${item.id}` : item.id;
+}
+function monitorLabel(item) {
+  const freshness = receiptState(item.last);
+  const state = freshness.kind === 'recent' ? 'recent receipts'
+    : freshness.kind === 'stale' ? 'no recent receipts' : 'time uncertain';
+  return `${monitorName(item)} · ${state}`;
+}
+function updateSelector() {
+  const select = $('track');
+  const monitoring = mode === 'live';
+  $('selection-label').textContent = monitoring ? 'Source / channel' : 'Recording run';
+  select.setAttribute('aria-label', monitoring ? 'Monitored source or channel' : 'Recording run');
+  select.replaceChildren();
+  if (monitoring) {
+    for (const item of monitorCatalogue)
+      select.add(new Option(monitorLabel(item), monitorKey(item)));
+    select.disabled = !monitorCatalogue.length;
+    if (!monitorCatalogue.length) select.add(new Option('No observed channels', ''));
+    select.value = selectedMonitorKey;
+    select.title = 'One latest recording per identified source or channel; unassigned runs remain separate in History';
+  } else {
+    for (const track of catalogue) select.add(new Option(runLabel(track), track.track_id));
+    if (selectedTrack && !catalogue.some(t => t.track_id === selectedTrack))
+      select.add(new Option(selectedTrack + ' (not in recent list)', selectedTrack));
+    select.disabled = !catalogue.length;
+    if (!catalogue.length) select.add(new Option('No recordings', ''));
+    select.value = selectedTrack;
+    select.title = 'Showing the 100 most recently updated runs; older runs remain stored';
+  }
 }
 function showLiveStatus() {
   if (mode !== 'live') return;
   if (!points.length) {
     feedState('unknown', 'No observations');
-    status('Live view · No recorded observations for this run');
+    status('Monitor · No recorded observations for this run');
     return;
   }
   const latest = points.at(-1);
@@ -100,7 +139,7 @@ function showLiveStatus() {
     `Received ${receipt.label}; connection not verified` :
     receipt.kind === 'stale' ? `Last received ${receipt.label}; position is not current` :
     'Receipt time uncertain; position is not confirmed current';
-  status(`Live view · ${points.length} stored observations · ${summary} · ${localTime(latest.time)}`
+  status(`Monitor · ${points.length} stored observations · ${summary} · ${localTime(latest.time)}`
     + (positioningJumps.length ? ` · ${positioningJumps.length} possible positioning jump${positioningJumps.length === 1 ? '' : 's'}` : ''));
 }
 
@@ -128,7 +167,7 @@ function clearView() {
   $('page-status').textContent = '';
   $('gap-status').textContent = '';
   feedState(mode === 'live' ? 'unknown' : 'history', mode === 'live' ? 'Checking receipts' : 'History');
-  status(selectedTrack ? 'Loading observations…' : 'Waiting for a recording run');
+  status(selectedTrack ? 'Loading observations…' : 'Waiting for observations');
 }
 
 function fixDetails(p) {
@@ -365,6 +404,13 @@ function setMode(next) {
     $('layers-toggle').setAttribute('aria-expanded', 'false');
     $('place-toggle').setAttribute('aria-expanded', 'false');
   }
+  if (mode === 'history') {
+    selectedTrack = historyTrack || selectedTrack || catalogue[0]?.track_id || '';
+    historyTrack = selectedTrack;
+  } else {
+    selectedTrack = monitorCatalogue.find(item => monitorKey(item) === selectedMonitorKey)?.track_id || '';
+  }
+  updateSelector();
   clearView();
   if (mode === 'history') {
     historyDefaults();
@@ -378,34 +424,31 @@ async function refreshTracks() {
   if (tracksBusy) return;
   tracksBusy = true;
   try {
-    const result = await getJSON('/api/tracks');
-    catalogue = result.tracks;
+    const [runs, monitored] = await Promise.all([
+      getJSON('/api/tracks'), getJSON('/api/monitor')
+    ]);
+    catalogue = runs.tracks;
+    monitorCatalogue = monitored.entries;
     const previous = selectedTrack;
-    if (!selectedTrack && catalogue.length) selectedTrack = catalogue[0].track_id;
-    const select = $('track');
-    select.replaceChildren();
-    if (!catalogue.length) {
-      const option = new Option('No recordings', '');
-      select.add(option);
-      select.disabled = true;
+    if (!historyTrack && catalogue.length) historyTrack = catalogue[0].track_id;
+    if (mode === 'live') {
+      if (!monitorCatalogue.some(item => monitorKey(item) === selectedMonitorKey))
+        selectedMonitorKey = monitorCatalogue.length ? monitorKey(monitorCatalogue[0]) : '';
+      selectedTrack = monitorCatalogue.find(item => monitorKey(item) === selectedMonitorKey)?.track_id || '';
     } else {
-      select.disabled = false;
-      for (const track of catalogue) select.add(new Option(runLabel(track), track.track_id));
-      if (selectedTrack && !catalogue.some(t => t.track_id === selectedTrack)) {
-        select.add(new Option(selectedTrack + ' (not in recent list)', selectedTrack));
-      }
-      select.value = selectedTrack;
+      selectedTrack = historyTrack;
     }
+    updateSelector();
     visibleOverlays.delete(selectedTrack);
     renderLayerPanel();
-    if (result.truncated) $('track').title = 'Showing the 100 most recently updated runs';
-    else $('track').title = '';
     if (selectedTrack !== previous) {
       clearView();
       if (mode === 'history') {historyDefaults(); loadHistory();}
       else refreshLive();
-    } else if (!catalogue.length) status('Waiting for a recording run');
-  } catch (error) { status('Track catalogue unavailable: ' + error.message); }
+    } else if (!selectedTrack) status('Waiting for observations');
+    if (runs.truncated && mode === 'history')
+      $('page-status').textContent = 'Run selector shows only the 100 most recent runs';
+  } catch (error) { status('Observation catalogue unavailable: ' + error.message); }
   finally { tracksBusy = false; }
 }
 
@@ -660,7 +703,13 @@ async function loadOverlays() {
 }
 
 $('track').addEventListener('change', () => {
-  selectedTrack = $('track').value;
+  if (mode === 'live') {
+    selectedMonitorKey = $('track').value;
+    selectedTrack = monitorCatalogue.find(item => monitorKey(item) === selectedMonitorKey)?.track_id || '';
+  } else {
+    historyTrack = $('track').value;
+    selectedTrack = historyTrack;
+  }
   visibleOverlays.delete(selectedTrack);
   renderLayerPanel();
   clearView();

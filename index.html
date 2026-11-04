@@ -40,7 +40,7 @@
     button[aria-pressed="true"] {background:#155884; border-color:#4ca8e6}
     button:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #78baf2; outline-offset:2px}
     #map {flex:1; min-height:280px; background:#18242d}
-    #track {max-width:210px}
+    #track {max-width:290px}
     #status {font-size:12px}
     #feed-state {font-size:12px; padding:3px 7px; border:1px solid #536b7b;
       border-radius:5px; color:#dae4eb; white-space:nowrap}
@@ -67,9 +67,9 @@
     <div class="top">
       <div class="brand"><h1>Cartochron</h1><span id="feed-state" data-state="unknown">Checking receipts</span><span id="status" role="status">Connecting…</span><a class="help-link" href="/help" target="_blank" rel="noopener">Help / Manual</a></div>
       <div class="controls">
-        <label>Track <select id="track" aria-label="Recording run"><option>Loading…</option></select></label>
+        <label><span id="selection-label">Source / channel</span> <select id="track" aria-label="Monitored source or channel"><option>Loading…</option></select></label>
         <div class="controls" aria-label="Map mode">
-          <button id="live" type="button" aria-pressed="true">Live</button>
+          <button id="live" type="button" aria-pressed="true">Monitor</button>
           <button id="history" type="button" aria-pressed="false">History</button>
         </div>
       </div>

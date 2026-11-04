@@ -19,6 +19,7 @@ function viewer() {
       events: {}, addEventListener(name, fn) { this.events[name] = fn; },
       setAttribute() {},
       appendChild(child) { this.children.push(child); return child; },
+      add(option) { this.children.push(option); },
       replaceChildren(...children) { this.children = [...children]; },
     });
     return elements.get(id);
@@ -78,7 +79,9 @@ function viewer() {
     fetch: () => new Promise(() => {}),
     setInterval: () => {},
     requestAnimationFrame: fn => fn(),
-    URLSearchParams, Date, Option: class {},
+    URLSearchParams, Date, Option: class {
+      constructor(text, value) { this.text = text; this.value = value; }
+    },
   });
   vm.runInContext(source, context);
   function exec(script) { return vm.runInContext(script, context); }
@@ -404,4 +407,87 @@ test('source association is visible as text and never inserted as HTML', () => {
   assert.ok(rows[0].children[1].textContent.includes(hostile));
   assert.equal(rows[0].children[1].innerHTML, undefined);
   assert.match(rows[1].children[1].textContent, /unassigned/);
+});
+
+function monitorFixtures(ui) {
+  const latest = new Date(Date.now() - 15_000).toISOString();
+  const prior = new Date(Date.now() - 3600_000).toISOString();
+  ui.context.monitorFixture = [
+    {kind: 'channel', id: 'oneplus', channel_id: 'oneplus', source_label: null,
+      source_id: null, track_id: 'oneplus-new', last: latest, runs: 5, mixed_sources: false},
+    {kind: 'channel', id: 'lg', channel_id: 'lg', source_label: null,
+      source_id: null, track_id: 'lg-old', last: prior, runs: 2, mixed_sources: false},
+    {kind: 'unattributed', id: 'legacy-new', source_label: null,
+      source_id: null, track_id: 'legacy-new', last: prior, runs: 20, mixed_sources: false},
+  ];
+  ui.context.runFixture = [
+    {track_id: 'oneplus-new', last: latest}, {track_id: 'oneplus-old', last: prior},
+    {track_id: 'lg-old', last: prior}, {track_id: 'legacy-new', last: prior},
+  ];
+  ui.context.fetch = async url => {
+    if (url === '/api/monitor') return {ok: true, json: async () => ({entries: ui.context.monitorFixture})};
+    if (url === '/api/tracks') return {ok: true, json: async () => ({tracks: ui.context.runFixture})};
+    if (url.startsWith('/api/points/recent')) return {ok: true, json: async () => ({points: []})};
+    if (url.startsWith('/api/points?')) return {ok: true, json: async () => ({points: [], next_cursor: null})};
+    throw new Error('unexpected URL: ' + url);
+  };
+  ui.exec('tracksBusy = false'); // Initial onload poll used an intentionally suspended fetch.
+}
+
+test('Monitor lists stable channel identities, not a growing menu of recording runs', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  await ui.exec('refreshTracks()');
+  const select = ui.element('track');
+  assert.equal(ui.element('selection-label').textContent, 'Source / channel');
+  assert.equal(select.children.length, 3);
+  assert.equal(select.value, 'channel:oneplus');
+  assert.equal(ui.exec('selectedTrack'), 'oneplus-new');
+  assert.ok(select.children[0].text.includes('oneplus'));
+  assert.match(select.children[0].text, /recent receipts/);
+  assert.match(select.children[1].text, /no recent receipts/);
+  assert.doesNotMatch(select.children[0].text, /ago/);
+  assert.match(select.children[2].text, /20 unassigned runs/);
+  assert.doesNotMatch(select.children[0].text, /oneplus-old/);
+});
+
+test('Monitor follows the next run for the selected channel without joining route data', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  await ui.exec('refreshTracks()');
+  ui.context.monitorFixture[0] = {...ui.context.monitorFixture[0], track_id: 'oneplus-fresh', runs: 6};
+  ui.context.runFixture.unshift({track_id: 'oneplus-fresh', last: new Date().toISOString()});
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.element('track').value, 'channel:oneplus');
+  assert.equal(ui.exec('selectedTrack'), 'oneplus-fresh');
+  assert.equal(ui.exec('points.length'), 0); // Old run's points cleared.
+});
+
+test('History keeps independent runs and remembers its choice when returning from Monitor', async () => {
+  const ui = viewer();
+  monitorFixtures(ui);
+  await ui.exec('refreshTracks()');
+  ui.exec('setMode("history")');
+  assert.equal(ui.element('selection-label').textContent, 'Recording run');
+  assert.equal(ui.element('track').children.length, 4);
+  ui.element('track').value = 'oneplus-old';
+  ui.element('track').events.change();
+  assert.equal(ui.exec('selectedTrack'), 'oneplus-old');
+  ui.exec('setMode("live")');
+  assert.equal(ui.exec('selectedTrack'), 'oneplus-new');
+  ui.exec('setMode("history")');
+  assert.equal(ui.exec('selectedTrack'), 'oneplus-old');
+});
+
+test('Monitor labels mixed source assertions without treating the latest label as universal', () => {
+  const ui = viewer();
+  const injected = '<img src=x onerror=alert(1)>';
+  ui.context.injected = injected;
+  ui.exec('monitorCatalogue = [{kind:"channel",id:"lab",track_id:"x",source_label:injected,mixed_sources:true,last:new Date().toISOString()}]');
+  assert.match(ui.exec('monitorLabel(monitorCatalogue[0])'), /mixed source assertions/);
+  assert.doesNotMatch(ui.exec('monitorLabel(monitorCatalogue[0])'), /<img/);
+  ui.exec('monitorCatalogue[0].mixed_sources=false; updateSelector()');
+  const item = ui.element('track').children[0];
+  assert.ok(item.text.includes(injected));
+  assert.equal(item.innerHTML, undefined);
 });
