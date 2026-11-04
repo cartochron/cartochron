@@ -165,6 +165,45 @@ groups can split or change as older pages arrive. They say nothing about what
 happened between the fixes, even if their timestamps are close. In particular,
 they are **not visits, dwell times or co-presence conclusions**.
 
+### 7. Candidate temporal proximity: what was received near the same place and time?
+
+After **Search recorded history**, the **Candidate temporal proximity** section
+compares pairs of *retrieved matching observations* from different recording
+runs. Choose a receipt-time window of **1**, **5**, or **15 minutes**. A pair
+qualifies only when both reports fall within the selected place radius and
+the server received them within that time window. Each witness displays the
+run IDs, individual observation IDs, both receipt timestamps, their time
+difference, the distance **between the two reported coordinates**, and their
+producer-reported accuracies (or "unknown"). It does not estimate where a
+device was *between* observations.
+
+The viewer makes an explicit attribution distinction:
+
+- **Different enrolled source claims** means both observations have different
+  enrolled `source_id` values. It is not independent proof of two devices.
+- **Different channel claims only** means the available evidence distinguishes
+  configured acquisition channels, but not two enrolled sources. Two channels
+  can observe the same underlying device.
+- **Unattributed runs** without a usable channel or source are not compared.
+  Observations from the same enrolled source or the same channel are never
+  counted as independent identities, even if they came from different runs.
+  A channel with incompatible enrolled-source claims in retrieved pages is
+  excluded instead of silently assigned to either source.
+
+The result counts **pairs of observations**, not encounters. Repeated cached
+positions or high-frequency reports may generate many pairs. The interface
+shows at most the **40 closest receipt-time pairs**, and reports the total
+qualifying pair count among retrieved observations. Narrow the receipt-time
+range or source scope to investigate a particular hypothesis.
+
+**Coverage is bounded:** the underlying place search is paged, and the
+browser retains at most 500 matching observations. A candidate can appear
+when another page loads; contradictory source claims may cause an earlier
+candidate to disappear. An empty result means only *no qualifying pair among
+the currently retrieved evidence*. Neither a pair nor its absence establishes
+co-presence, meetings, deliberate movement, or a device's current location.
+Even receipt-time coincidence can reflect cached or delayed measurements.
+
 Record the coordinates, radius, time of query and completion state before
 reporting any finding. A geographic distance computed from reported
 coordinates is not a measured distance between physical people. Repeated fixes
@@ -180,7 +219,9 @@ has no observations covering this interval*.
 
 **Question B: Did two sources meet?** Load the relevant runs, inspect
 spatial intersections, then compare their receipt-time windows and reported
-measurement times, if available. Account for accuracy and missing intervals.
+measurement times, if available. Inspect candidate temporal-proximity pairs
+near a chosen place, retaining both observation IDs and the search coverage.
+Account for accuracy, cached measurements, and missing intervals.
 If the only support is two crossing polylines, the meeting hypothesis is
 **unconfirmed**.
 
