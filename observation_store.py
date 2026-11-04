@@ -12,11 +12,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_RECENT_POINTS = 1000
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_TRACKS = 100
 MAX_SOURCES = 100
 SOURCE_ID_PATTERN = re.compile(r"src_[a-f0-9]{24}\Z")
 TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+CHANNEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
 def valid_source_id(value):
@@ -28,6 +29,10 @@ def valid_track_id(value):
     """Track IDs are small, portable identifiers, not device identities or secrets."""
     return isinstance(value, str) and TRACK_ID_PATTERN.fullmatch(value) is not None
 
+
+def valid_channel_id(value):
+    """Channels are operator-configured input identities, not device proof."""
+    return isinstance(value, str) and CHANNEL_ID_PATTERN.fullmatch(value) is not None
 
 
 class UnknownSource(ValueError):
@@ -87,7 +92,7 @@ class ObservationStore:
             if existing:
                 raise ValueError("database has no Cartochron schema version; refusing to modify it")
             self._create_schema()
-        elif version in (1, 2):
+        elif version in (1, 2, 3):
             self._migrate(version)
         elif version != SCHEMA_VERSION:
             raise ValueError(f"unsupported database schema version: {version}")
@@ -106,9 +111,11 @@ class ObservationStore:
             self._db.execute("""
                 CREATE TABLE runs (
                     track_id TEXT PRIMARY KEY,
-                    source_id TEXT REFERENCES sources(source_id)
+                    source_id TEXT REFERENCES sources(source_id),
+                    channel_id TEXT
                 )
             """)
+            self._db.execute("CREATE INDEX runs_channel ON runs(channel_id)")
             self._db.execute("""
                 CREATE TABLE observations (
                     id INTEGER PRIMARY KEY,
@@ -128,11 +135,10 @@ class ObservationStore:
             self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _migrate(self, version):
-        """Upgrade existing histories; never guess a source or fix metadata."""
+        """Upgrade existing histories without guessing unreported identities."""
         self._db.execute("SELECT id, track_id, received_ms, lat, lon FROM observations LIMIT 0")
         if version == 1:
-            # One transaction creates the source/run tables and retains old
-            # histories as unassigned runs. No identity is inferred.
+            # Source/run enrollment was introduced in v2; old runs stay unassigned.
             with self._db:
                 self._db.execute("BEGIN IMMEDIATE")
                 self._db.execute("""
@@ -152,18 +158,32 @@ class ObservationStore:
                     SELECT DISTINCT track_id, NULL FROM observations
                 """)
                 self._db.execute("PRAGMA user_version = 2")
-        else:
-            # Refuse damaged v2 layouts before attempting ALTER TABLE.
+            version = 2
+
+        if version == 2:
             self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
             self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
+            # Optional reported GPS measurement metadata introduced in v3.
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute("ALTER TABLE observations ADD COLUMN measured_ms INTEGER")
+                self._db.execute("ALTER TABLE observations ADD COLUMN provider TEXT")
+                self._db.execute("ALTER TABLE observations ADD COLUMN accuracy_m REAL")
+                self._db.execute("PRAGMA user_version = 3")
+            version = 3
 
-        # Upgrade v2 -> v3 atomically. Old measurements remain unknown.
-        with self._db:
-            self._db.execute("BEGIN IMMEDIATE")
-            self._db.execute("ALTER TABLE observations ADD COLUMN measured_ms INTEGER")
-            self._db.execute("ALTER TABLE observations ADD COLUMN provider TEXT")
-            self._db.execute("ALTER TABLE observations ADD COLUMN accuracy_m REAL")
-            self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        if version == 3:
+            # A channel was not observable in legacy records; preserve NULL.
+            self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
+            self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
+            self._db.execute(
+                "SELECT measured_ms, provider, accuracy_m FROM observations LIMIT 0"
+            )
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute("ALTER TABLE runs ADD COLUMN channel_id TEXT")
+                self._db.execute("CREATE INDEX runs_channel ON runs(channel_id)")
+                self._db.execute("PRAGMA user_version = 4")
 
     def _verify_schema(self):
         # A schema version is a contract, not a license to create missing tables.
@@ -172,7 +192,7 @@ class ObservationStore:
             "FROM observations LIMIT 0"
         )
         self._db.execute("SELECT source_id, label FROM sources LIMIT 0")
-        self._db.execute("SELECT track_id, source_id FROM runs LIMIT 0")
+        self._db.execute("SELECT track_id, source_id, channel_id FROM runs LIMIT 0")
 
     def enroll(self, label):
         """Create an operator-enrolled source. Labels are descriptions, not keys."""
@@ -232,16 +252,18 @@ class ObservationStore:
         return point
 
     def record(self, lat, lon, track_id="legacy", source_id=None, *,
-               measured_ms=None, provider=None, accuracy_m=None):
+               measured_ms=None, provider=None, accuracy_m=None, channel_id=None):
         """Commit an observation under one immutable run-to-source association.
 
-        A run first created without a source cannot silently be claimed later,
-        and an enrolled run cannot be written as an anonymous legacy run.
+        Source and channel are independent assertions, immutable for a run.
+        Missing values stay unknown, including after future observations.
         """
         if not valid_track_id(track_id):
             raise ValueError("invalid track_id")
         if source_id is not None and not valid_source_id(source_id):
             raise ValueError("invalid source_id")
+        if channel_id is not None and not valid_channel_id(channel_id):
+            raise ValueError("invalid channel_id")
         if measured_ms is not None and (type(measured_ms) is not int or
                                         not 0 <= measured_ms <= 253402300799999):
             raise ValueError("invalid measured_ms")
@@ -257,12 +279,13 @@ class ObservationStore:
                     "SELECT 1 FROM sources WHERE source_id = ?", (source_id,)).fetchone() is None:
                 raise UnknownSource("unknown source_id")
             existing = self._db.execute(
-                "SELECT source_id FROM runs WHERE track_id = ?", (track_id,)).fetchone()
+                "SELECT source_id, channel_id FROM runs WHERE track_id = ?", (track_id,)).fetchone()
             if existing is None:
-                self._db.execute("INSERT INTO runs(track_id, source_id) VALUES (?, ?)",
-                                 (track_id, source_id))
-            elif existing[0] != source_id:
-                raise SourceConflict("recording run belongs to a different source")
+                self._db.execute(
+                    "INSERT INTO runs(track_id, source_id, channel_id) VALUES (?, ?, ?)",
+                    (track_id, source_id, channel_id))
+            elif existing != (source_id, channel_id):
+                raise SourceConflict("recording run source/channel association cannot change")
             received_ms = time.time_ns() // 1_000_000
             self._db.execute(
                 """INSERT INTO observations(track_id, received_ms, lat, lon,
@@ -276,7 +299,10 @@ class ObservationStore:
                         SELECT id FROM observations ORDER BY id DESC LIMIT ?
                     )
                 """, (MAX_RECENT_POINTS,))
-        return self._point((received_ms, lat, lon, measured_ms, provider, accuracy_m))
+        point = self._point((received_ms, lat, lon, measured_ms, provider, accuracy_m))
+        if channel_id is not None:
+            point["channel_id"] = channel_id  # Acknowledge persisted run association.
+        return point
 
     def recent(self, track_id=None):
         """Return the latest points from one run, in chronological order.
@@ -306,7 +332,7 @@ class ObservationStore:
         """Bounded catalogue of runs, ordered by most recent ingestion."""
         with self._lock:
             rows = self._db.execute(
-                """                SELECT runs.track_id, r.source_id, s.label,
+                """                SELECT runs.track_id, r.source_id, s.label, r.channel_id,
                        runs.count, runs.first_ms, runs.last_ms
                 FROM (
                     SELECT track_id, COUNT(*) AS count,
@@ -322,10 +348,11 @@ class ObservationStore:
             ).fetchall()
         return {
             "tracks": [
-                {"track_id": track_id, "source_id": source_id, "source_label": source_label, "count": count,
+                {"track_id": track_id, "source_id": source_id, "source_label": source_label,
+                 "channel_id": channel_id, "count": count,
                  "first": self._timestamp(first_ms, "milliseconds"),
                  "last": self._timestamp(last_ms, "milliseconds")}
-                for track_id, source_id, source_label, count, first_ms, last_ms in rows[:MAX_TRACKS]
+                for track_id, source_id, source_label, channel_id, count, first_ms, last_ms in rows[:MAX_TRACKS]
             ],
             "truncated": len(rows) > MAX_TRACKS,
         }

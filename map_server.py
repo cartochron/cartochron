@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from observation_store import (MAX_RECENT_POINTS, ObservationStore, SourceConflict,
-                               UnknownSource, valid_source_id, valid_track_id)
+                               UnknownSource, valid_channel_id, valid_source_id, valid_track_id)
 
 MAX_BODY = 4096
 MAX_WORKERS = 32  # Cap idle or stalled HTTP clients as well as active requests.
@@ -282,11 +282,14 @@ class Handler(BaseHTTPRequestHandler):
             lat, lon = obj["lat"], obj["lon"]
             track_id = obj.get("track_id", "legacy")
             source_id = obj.get("source_id")
+            channel_id = obj.get("channel_id")
             measured_ms = obj.get("measured_ms")
             provider = obj.get("provider")
             accuracy_m = obj.get("accuracy_m")
             if source_id is not None and not valid_source_id(source_id):
                 return self._json(400, {"error": "invalid source_id"})
+            if channel_id is not None and not valid_channel_id(channel_id):
+                return self._json(400, {"error": "invalid channel_id"})
             if not valid_track_id(track_id):
                 return self._json(400, {"error": "invalid track_id"})
             if type(lat) not in (int, float) or type(lon) not in (int, float):
@@ -298,11 +301,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             point = self.server.store.record(lat, lon, track_id, source_id,
                                              measured_ms=measured_ms, provider=provider,
-                                             accuracy_m=accuracy_m)
+                                             accuracy_m=accuracy_m, channel_id=channel_id)
         except UnknownSource:
             return self._json(422, {"error": "source_id is not enrolled"})
         except SourceConflict:
-            return self._json(409, {"error": "recording run/source conflict"})
+            return self._json(409, {"error": "recording run source/channel conflict"})
         except ValueError as exc:
             return self._json(400, {"error": str(exc)})
         except sqlite3.Error:
