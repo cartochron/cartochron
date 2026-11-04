@@ -65,6 +65,23 @@ docker compose exec cartochron python3 sources.py --db /data/observations.sqlite
 docker compose exec cartochron python3 sources.py --db /data/observations.sqlite3 list
 ```
 
+You can change a display name without changing recorded provenance:
+
+```sh
+docker compose exec cartochron python3 sources.py --db /data/observations.sqlite3 \
+    rename src_0123456789abcdef01234567 'OnePlus source'
+docker compose exec cartochron python3 channels.py --db /data/observations.sqlite3 \
+    gpsd.oneplus 'OnePlus Nord CE 2 Lite (GPSD input)'
+```
+
+The IDs above are **examples**; use the actual enrolled source ID and observed
+channel ID. The channel must already have at least one recording. The CLI
+can also be run natively against `--db` with the receiver stopped. There is
+intentionally **no browser write endpoint** for these commands: the current
+HTTP Basic credential also authorizes ingestion and viewing, not safe
+independent source administration. Changes to a display label are not
+retrospective claims about who supplied a fix.
+
 A source ID identifies an operator-enrolled producer; it is not an
 authentication token or proof of device identity.
 

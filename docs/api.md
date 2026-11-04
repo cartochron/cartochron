@@ -36,7 +36,8 @@ The API exposes these relevant GET operations:
 | `GET /api/points` | Original `{"points": [...]}` response, from the most recently updated run |
 | `GET /api/points/recent?track_id=...` | Up to 1,000 newest points for an explicitly selected run (used by Live mode) |
 | `GET /api/tracks` | Up to 100 run summaries, including nullable `channel_id`, `source_id` and descriptive `source_label` |
-| `GET /api/monitor` | Up to 100 grouped Monitor entries (latest run per channel or otherwise source, plus newest unattributed run) |
+| `GET /api/monitor` | Up to 100 grouped Monitor entries, including each group's latest reported coordinates and optional display labels |
+| `GET /api/runs?limit=50&before=...` | Paginated run catalogue, optionally filtered by exact `channel_id` or `source_id` |
 | `GET /api/sources` | Up to 100 enrolled source summaries (protected by the same HTTP authentication) |
 | `GET /api/points?track_id=...` | Historical query ordered by receipt time, with an optional time range, page size, and continuation cursor |
 
@@ -80,7 +81,8 @@ The read-only `/api/monitor` response has `entries` and a `truncated`
 flag. Entries carry `kind` (`channel`, `source`, or `unattributed`), `id`,
 `track_id` (the newest *ingested* run for that identity), `last` (receipt
 of that run's latest inserted observation), `runs` (number of separate runs),
-nullable `channel_id`, `source_id`, `source_label`, and `mixed_sources`. The
+nullable `channel_id`, `channel_label`, `source_id`, `source_label`,
+`lat`, `lon` (latest reported coordinates), and `mixed_sources`. The
 latter warns if different runs on one channel asserted different enrolled
 source IDs. The latest source label must not be promoted to a claim about
 all historical runs. Unattributed entries are **not** merged into a device:
@@ -90,6 +92,19 @@ Enrollment without recorded observations is listed by `/api/sources`, not
 `/api/monitor`. Both endpoints use the same configured HTTP authentication.
 Monitor summaries are bounded and may be truncated; they are not full-history
 exports or evidence of a current connection.
+
+To list older recording runs use `GET /api/runs?limit=50`. Each result contains
+`tracks` and `next_cursor` (an integer observation-row ID, or null). When a
+cursor is present, pass it as `before=<next_cursor>` to load the next page.
+Optionally pass exactly one of `channel_id` or `source_id` for a stored
+association filter. Page sizes are 1–100. The cursor is a position rather
+than a snapshot: concurrent ingestion can reorder an existing run between
+requests. Use exact run IDs to examine recorded evidence.
+
+`channel_label` is a mutable operator description, distinct from the run's
+immutable `channel_id` and optional `source_id`. The HTTP API does not expose
+label writes. The latest coordinates on Monitor are observational reports,
+not evidence that a source remains connected or is currently present there.
 
 The Leaflet page uses these APIs for track selection and historical navigation.
 The unfiltered endpoint remains available for older clients and still follows

@@ -1,6 +1,6 @@
 # Cartochron data contracts
 
-## Implemented: location observation protocol (v4 database)
+## Implemented: location observation protocol (v5 database)
 
 The API accepts `POST /api/position` with latitude and longitude, optional
 `track_id`, and optional `source_id`. Missing track IDs use `legacy` for
@@ -26,10 +26,13 @@ opaque provider name), and `accuracy_m` (horizontal accuracy in metres).
 These are producer assertions, not independently verified measurements. All
 three fields are absent for legacy and current Meterpreter observations; missing
 values must never be replaced with server receipt time or guessed accuracy.
-Schema v4 adds nullable run-level `channel_id`. New databases create v4
+Schema v4 adds nullable run-level `channel_id`. New databases create v5
 directly; v1/v2/v3 databases migrate without guessing old channel identities.
 Legacy observations retain NULL for missing measurement metadata. Back up
-the database before upgrading; earlier Cartochron versions cannot open v4.
+the database before upgrading; earlier Cartochron versions cannot open v5.
+Schema v5 adds a separate `channel_labels` display-name table. Changing labels
+never updates `runs.source_id`, `runs.channel_id`, or an observation. The label
+is an operator description, not authenticated source provenance.
 
 A Monitor identity is a **read-only grouping**, not a new owner or a merged
 recording: choose `channel_id` when present, otherwise the enrolled `source_id`.

@@ -187,9 +187,9 @@ optional `source_id` alongside the existing `lat`, `lon`, and `track_id` fields.
 An unknown source returns HTTP 422, and attempting to attach an existing run
 to another source returns HTTP 409. Both errors leave the observation history
 unchanged. Older producers can still omit `source_id`; their runs remain
-unassigned. Existing schema-v1/v2 databases are upgraded to v3 automatically.
+unassigned. Existing schema-v1/v2 databases are upgraded through the supported migrations.
 Previously unassigned runs remain unassigned and absent measurement metadata
-remains NULL. Back up first; older Cartochron versions cannot read schema v3.
+remains NULL. Back up before migration; older Cartochron versions may not read the new schema.
 
 The ID is **not an authentication token**. Access control remains the
 responsibility of the HTTP authentication / reverse proxy boundary, and every

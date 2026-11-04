@@ -38,8 +38,10 @@ The independent [Cartochron GPSD adapter](https://github.com/cartochron/cartochr
 can also send reports. Its registry's channel identifiers persist across
 collector restarts without implying verified phone identity. Cartochron stores
 these optional per-run IDs from schema v4 onward; previously recorded runs
-remain unattributed to a channel. **Back up persistent SQLite data before
-upgrading from schema v3** and upgrade the receiver before the GPSD adapter.
+remain unattributed to a channel. Schema v5 adds operator-owned channel
+*display names* without changing any recorded associations. **Back up the
+persistent SQLite database before upgrading**; the receiver must be upgraded
+before clients requiring newer fields.
 
 The optional [Cartochron Metasploit adapter](https://github.com/cartochron/cartochron-metasploit)
 is a **separate repository**, with its own `make install` and Ruby tests.
@@ -97,7 +99,7 @@ does not use or modify your normal observations.
 - [Recording and external Metasploit adapter](docs/recording.md): run IDs, source identities,
   startup, logging and live-device field checks
 - [Map walkthrough and synthetic demo](docs/walkthrough.md): Monitor, History,
-  gaps, comparisons, time and place inspection
+  gaps, comparisons, camera controls, time and place inspection
 - [Operations](docs/operations.md): Compose and native deployment,
   authentication, backups, restore, VPS HTTPS, troubleshooting
 - [HTTP API](docs/api.md): ingestion, history, cursors and response contracts
