@@ -96,6 +96,8 @@ does not use or modify your normal observations.
 
 ## Documentation
 
+- [Cartochron handbook](docs/handbook.md): illustrated interpretation and investigation workflows
+- [Project vision](docs/vision.md): long-term analysis direction and plugin boundaries (not a v0.1 feature list)
 - [Recording and external Metasploit adapter](docs/recording.md): run IDs, source identities,
   startup, logging and live-device field checks
 - [Map walkthrough and synthetic demo](docs/walkthrough.md): Monitor, History,
