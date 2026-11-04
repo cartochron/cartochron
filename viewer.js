@@ -937,6 +937,7 @@ function historyDefaults() {
 }
 function setMode(next) {
   if (mode === next) return;
+  closeAnalysisDrawer();
   mode = next;
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
   $('history').setAttribute('aria-pressed', String(mode === 'history'));
@@ -1530,10 +1531,46 @@ $('track').addEventListener('change', () => {
   if (mode === 'history') {historyDefaults(); loadHistory();}
   else refreshLive();
 });
-$('layers-toggle').addEventListener('click', () => {
-  $('layers-panel').hidden = !$('layers-panel').hidden;
-  $('layers-toggle').setAttribute('aria-expanded', String(!$('layers-panel').hidden));
+// One investigation at a time. The map keeps its full viewport when the drawer opens.
+const ANALYSIS_TOOLS = [
+  ['layers-panel', 'layers-toggle', 'Compare tracks'],
+  ['place-panel', 'place-toggle', 'Investigate place'],
+  ['proximity-panel', 'proximity-toggle', 'Compare runs']
+];
+function closeAnalysisDrawer() {
+  const placeWasOpen = !$('place-panel').hidden;
+  const acrossWasOpen = !$('proximity-panel').hidden;
+  for (const [panel, toggle] of ANALYSIS_TOOLS) {
+    $(panel).hidden = true;
+    $(toggle).setAttribute('aria-expanded', 'false');
+  }
+  $('analysis-drawer').hidden = true;
+  if (placeWasOpen) {
+    placeSelection = null;
+    placeLayer.clearLayers();
+    resetDatabasePlaceSearch();
+  }
+  if (acrossWasOpen) resetRunProximity();
+}
+function toggleAnalysisDrawer(panelId) {
+  const selected = ANALYSIS_TOOLS.find(([panel]) => panel === panelId);
+  if (!selected) return;
+  const opening = $(panelId).hidden;
+  closeAnalysisDrawer();
+  if (!opening) return;
+  $(panelId).hidden = false;
+  $(selected[1]).setAttribute('aria-expanded', 'true');
+  $('drawer-title').textContent = selected[2];
+  $('analysis-drawer').hidden = false;
+  $('history-actions').open = false;
+  if (panelId === 'proximity-panel') updateProximityChoices();
+}
+$('drawer-close').addEventListener('click', closeAnalysisDrawer);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('analysis-drawer').hidden) closeAnalysisDrawer();
 });
+for (const [panel, toggle] of ANALYSIS_TOOLS)
+  $(toggle).addEventListener('click', () => toggleAnalysisDrawer(panel));
 $('compare-time').addEventListener('change', () => loadOverlays());
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));
@@ -1541,23 +1578,12 @@ $('apply').addEventListener('click', () => loadHistory());
 $('more').addEventListener('click', () => {if (cursor && points.length < MAX_DISPLAY) loadHistory(true);});
 $('position').addEventListener('input', showInspection);
 $('time-cursor').addEventListener('input', updateTimeCursor);
-$('place-toggle').addEventListener('click', () => {
-  $('place-panel').hidden = !$('place-panel').hidden;
-  $('place-toggle').setAttribute('aria-expanded', String(!$('place-panel').hidden));
-  if ($('place-panel').hidden) {placeSelection = null; placeLayer.clearLayers(); resetDatabasePlaceSearch();}
-});
 $('place-radius').addEventListener('change', () => {resetDatabasePlaceSearch(); updatePlaceInspector();});
 for (const id of ['place-scope', 'place-from', 'place-to'])
   $(id).addEventListener('change', resetDatabasePlaceSearch);
 $('place-search').addEventListener('click', () => searchRecordedPlace());
 $('place-next').addEventListener('click', () => searchRecordedPlace(true));
 $('place-proximity-window').addEventListener('change', renderPlaceProximity);
-$('proximity-toggle').addEventListener('click', () => {
-  $('proximity-panel').hidden = !$('proximity-panel').hidden;
-  $('proximity-toggle').setAttribute('aria-expanded', String(!$('proximity-panel').hidden));
-  updateProximityChoices();
-  if ($('proximity-panel').hidden) resetRunProximity();
-});
 $('proximity-other').addEventListener('change', resetRunProximity);
 $('proximity-other').addEventListener('input', resetRunProximity);
 for (const id of ['proximity-radius', 'proximity-window', 'proximity-interval', 'from', 'to'])

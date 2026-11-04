@@ -64,6 +64,7 @@ function viewer() {
   }
   const context = vm.createContext({
     document: {
+      events: {}, addEventListener(name, fn) { this.events[name] = fn; },
       getElementById: element,
       createElement() { return {textContent: '', events: {}, children: [],
         appendChild(child) { this.children.push(child); },
@@ -1241,4 +1242,30 @@ test('annotation pages remain bounded and old responses cannot attach to a new p
   assert.equal(ui.element('witness-timeline').hidden, true);
   assert.equal(ui.element('witness-annotation-results').children.length, 0);
   assert.equal(ui.element('witness-annotation-load').disabled, false);
+});
+
+
+test('one investigation drawer at a time preserves map and allows Escape', () => {
+  const ui = viewer();
+  for (const id of ['layers-panel', 'place-panel', 'proximity-panel', 'analysis-drawer'])
+    ui.element(id).hidden = true; // HTML hidden attributes in the real page.
+  ui.element('layers-toggle').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('layers-panel').hidden, false);
+  assert.equal(ui.element('place-panel').hidden, true);
+  assert.equal(ui.element('drawer-title').textContent, 'Compare tracks');
+  ui.element('history-actions').open = true;
+  ui.element('place-toggle').events.click();
+  assert.equal(ui.element('history-actions').open, false);
+  assert.equal(ui.element('layers-panel').hidden, true);
+  assert.equal(ui.element('place-panel').hidden, false);
+  assert.equal(ui.element('drawer-title').textContent, 'Investigate place');
+  ui.exec('document.events.keydown({key:"Escape"})');
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('place-panel').hidden, true);
+  ui.element('proximity-toggle').events.click();
+  assert.equal(ui.element('proximity-panel').hidden, false);
+  ui.element('drawer-close').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('proximity-panel').hidden, true);
 });

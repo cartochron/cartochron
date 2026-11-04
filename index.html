@@ -3,111 +3,146 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cartochron</title>
+  <title>Cartochron · Investigation workbench</title>
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <style>
-    :root {color-scheme:dark; font:14px system-ui,sans-serif; background:#101820; color:#edf2f5}
+    :root {color-scheme:dark; font:14px/1.45 system-ui,sans-serif; background:#101b24; color:#e8f0f5;
+      --surface:#15242f; --raised:#203441; --border:#405766; --quiet:#a6c0d0; --accent:#8ed6ff}
     * {box-sizing:border-box}
-    html,body {height:100%; margin:0}
-    body {display:flex; flex-direction:column}
-    header {padding:12px 16px; background:#14212b; border-bottom:1px solid #385061}
-    .top {display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
-    .brand {display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
-    h1 {font-size:18px; margin:0; letter-spacing:.03em}
-    #status, #detail, #page-status, #compare-status {color:#bdd0db; font-variant-numeric:tabular-nums}
-    .controls, #history-controls, #inspect {display:flex; align-items:center; flex-wrap:wrap; gap:10px}
-    #history-controls, #monitor-controls {margin-top:10px}
-    #monitor-controls {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-    #monitor-count {font-size:12px;color:#bdd0db}
-    #place-panel {margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
-    #place-panel .controls {margin-bottom:8px}
-    #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
-    #place-status, #place-cluster-status, #place-proximity-status {font-size:12px;color:#bdd0db}
-    #place-clusters, #place-proximity-results {max-height:165px;overflow:auto;padding-left:22px;font-size:12px}
-    #witness-timeline-events {max-height:230px;overflow:auto;padding-left:24px;font-size:12px}
-    #witness-timeline-events li {margin:8px 0}
-    #witness-timeline-events button {margin-left:8px}
-    #layers-panel {display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
-    #layers-list {display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:100%}
-    .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
+    html,body {height:100%;margin:0}
+    body {display:flex;flex-direction:column;min-height:0}
+    header {flex:none;z-index:800;padding:10px 15px;background:var(--surface);border-bottom:1px solid var(--border)}
+    .top,.brand,.controls,#history-controls,#monitor-controls {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .top {justify-content:space-between}
+    .brand {gap:12px}
+    h1 {font-size:18px;letter-spacing:.06em;margin:0}
+    .motto {color:var(--quiet);font-size:11px;letter-spacing:.02em}
+    .mode-switch {display:flex;gap:2px;padding:3px;background:#0e1b25;border-radius:9px}
+    .mode-switch button {border:0;background:transparent;padding:7px 13px}
+    #history-controls,#monitor-controls {margin-top:8px;gap:8px}
+    #history-controls {padding-top:9px;border-top:1px solid #2d4654}
+    #history-controls label,#monitor-controls label {white-space:nowrap}
+    #history-controls .time-options {flex:0 1 auto}
+    .history-actions summary,.place-filters summary {cursor:pointer;color:var(--accent);font-weight:600}
+    .history-actions-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 0}
+    .time-options[open] {padding:5px 9px 8px;background:#1b2d39;border:1px solid var(--border);border-radius:8px}
+    .time-options summary,.view-options summary {cursor:pointer;color:var(--accent);font-weight:600}
+    .time-fields {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .view-options {position:relative}
+    .view-options .view-options-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+    #monitor-count,#runs-status,#page-status,#compare-status,#status,#detail {color:var(--quiet);font-size:12px;font-variant-numeric:tabular-nums}
+    #status {max-width:36ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .controls {gap:8px}
+    label {display:flex;align-items:center;gap:6px;color:#c4d5df}
+    input,button,select {font:inherit;color:#ebf4f8;border:1px solid #526b7a;background:var(--raised);border-radius:7px;padding:7px 10px}
+    input[type=checkbox] {accent-color:#70c6f5}
+    button {cursor:pointer;white-space:nowrap}
+    button:hover {background:#345266}
+    button[aria-pressed=true],button[aria-expanded=true] {background:#1b5978;border-color:#78bee9}
+    button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible {outline:2px solid #a4dcff;outline-offset:3px}
+    .help-link {color:var(--accent);font-size:12px;text-decoration:none}
+    .help-link:hover {text-decoration:underline}
+    #track {max-width:min(430px,52vw);min-width:150px}
+    #feed-state {font-size:12px;padding:4px 9px;border:1px solid #627783;border-radius:20px;white-space:nowrap}
+    #feed-state[data-state=recent] {color:#99e4c1;border-color:#388568}
+    #feed-state[data-state=stale],#feed-state[data-state=unknown] {color:#f0c89a;border-color:#a37f58}
+    .map-stage {position:relative;flex:1;min-height:280px;overflow:hidden;background:#1b2e3a}
+    #map {position:absolute;inset:0;background:#1b2e3a}
+    .analysis-drawer {position:absolute;top:12px;right:12px;bottom:12px;z-index:700;
+      width:min(450px,calc(100% - 24px));overflow-y:auto;overscroll-behavior:contain;
+      border:1px solid #546f7f;background:#142630f5;box-shadow:0 12px 32px #07131dc2;
+      border-radius:12px;padding:16px}
+    .drawer-heading {position:sticky;top:-16px;z-index:1;display:flex;justify-content:space-between;align-items:center;
+      background:#142630;padding:4px 0 11px;margin-bottom:8px;border-bottom:1px solid #3a5463}
+    .drawer-heading strong {font-size:15px}
+    #drawer-close {font-size:18px;padding:2px 10px}
+    #layers-panel,#place-panel,#proximity-panel {min-width:0}
+    #layers-panel > *,#place-panel > *,#proximity-panel > * {max-width:100%}
+    #place-panel .controls,#proximity-panel .controls {margin:10px 0}
+    .place-filters {margin-top:12px}
+    .place-filters[open] {padding:8px 0;border-top:1px solid #395567}
+    #place-panel input,#proximity-panel input {min-width:0;max-width:100%}
+    #place-results,#place-clusters,#place-proximity-results,#proximity-results,#witness-timeline-events,#witness-annotation-results {
+      max-height:225px;overflow:auto;padding-left:23px;font-size:12px}
+    #place-results li,#place-clusters li,#place-proximity-results li,#proximity-results li,#witness-timeline-events li {
+      padding:6px 0;border-bottom:1px solid #2b4756}
+    #place-status,#place-db-status,#place-cluster-status,#place-proximity-status,#proximity-status,
+    #witness-timeline-status,#witness-annotation-status {color:var(--quiet);font-size:12px}
+    #layers-list {display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+    .track-layer {border:1px solid var(--border);border-radius:7px;padding:6px 8px;max-width:100%}
     .track-layer span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .track-layer input {accent-color:#8724d5}
-    #inspect, #time-panel {padding:9px 16px; background:#14212b; border-top:1px solid #385061}
-    #time-panel {display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-    #time-panel input {flex:1;min-width:150px}
-    #time-value, #time-results {font-size:12px;color:#bdd0db}
-    #time-results {display:flex;gap:8px;flex-wrap:wrap}
-    .time-result {border:1px solid #456273;border-radius:4px;padding:3px 6px}
-    #inspect input {flex:1; min-width:140px}
     #witness-annotation-command {white-space:pre-wrap;overflow-wrap:anywhere}
     #witness-annotation-results li {white-space:pre-wrap;overflow-wrap:anywhere}
-    label {display:flex; align-items:center; gap:7px; color:#bdd0db}
-    input,button,select {font:inherit; border:1px solid #536b7b; border-radius:5px; color:#edf2f5; background:#213441; padding:7px 9px}
-    button {cursor:pointer}
-    button:hover {background:#345064}
-    button[aria-pressed="true"] {background:#155884; border-color:#4ca8e6}
-    button:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #78baf2; outline-offset:2px}
-    #map {flex:1; min-height:280px; background:#18242d}
-    #track {max-width:400px}
-    #status {font-size:12px}
-    #feed-state {font-size:12px; padding:3px 7px; border:1px solid #536b7b;
-      border-radius:5px; color:#dae4eb; white-space:nowrap}
-    #feed-state[data-state="recent"] {border-color:#3b8d78; color:#a9e7c8}
-    #feed-state[data-state="stale"] {border-color:#b88b55; color:#ffd39e}
-    #feed-state[data-state="unknown"] {border-color:#b88b55; color:#ffd39e}
-    .help-link {color:#94d9ff;font-size:12px;text-decoration:underline;text-underline-offset:3px}
-    #detail {min-width:240px; font-size:12px}
-    #gap-status {font-size:12px; color:#f2d6ff}
-    #page-status, #compare-status {font-size:12px}
+    .analysis-drawer small {display:block;color:var(--quiet);margin-top:10px}
+    #inspect,#time-panel {flex:none;padding:8px 15px;background:var(--surface);border-top:1px solid #385061;
+      display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    #time-panel input,#inspect input {flex:1;min-width:130px}
+    #time-value,#time-results,#gap-status {font-size:12px;color:var(--quiet)}
+    #time-results {display:flex;gap:8px;flex-wrap:wrap}
+    .time-result {border:1px solid var(--border);border-radius:5px;padding:3px 7px}
+    #detail {min-width:220px}
+    #gap-status {color:#eac6ff}
     [hidden] {display:none!important}
-    @media(max-width:650px) {
-      header {padding:10px}
-      .top {align-items:flex-start}
-      #history-controls label {flex:1; min-width:165px}
-      #history-controls input {width:100%; min-width:0}
-      #inspect {padding:10px}
+    @media(max-width:720px) {
+      header {padding:9px 10px}
+      #track {max-width:calc(100vw - 20px)}
+      .motto {display:none}
+      .analysis-drawer {top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:61%;border-radius:12px}
+      #history-controls label {max-width:100%}
+      #inspect,#time-panel {padding:8px 10px}
       #detail {width:100%}
     }
+    @media(prefers-reduced-motion:reduce) {*,*::before,*::after {scroll-behavior:auto!important;animation:none!important}}
   </style>
 </head>
 <body>
   <header>
     <div class="top">
-      <div class="brand"><h1>Cartochron</h1><span id="feed-state" data-state="unknown">Checking receipts</span><span id="status" role="status">Connecting…</span><a class="help-link" href="/help" target="_blank" rel="noopener">Help / Manual</a></div>
+      <div class="brand"><h1>Cartochron</h1><span class="motto">Observe · Compare · Question</span><span id="feed-state" data-state="unknown">Checking receipts</span><span id="status" role="status">Connecting…</span><a class="help-link" href="/help" target="_blank" rel="noopener">Guide</a></div>
       <div class="controls">
         <label><span id="selection-label">Source / channel</span> <select id="track" aria-label="Monitored source or channel"><option>Loading…</option></select></label>
-        <div class="controls" aria-label="Map mode">
+        <div class="mode-switch" aria-label="Map mode">
           <button id="live" type="button" aria-pressed="true">Monitor</button>
           <button id="history" type="button" aria-pressed="false">History</button>
         </div>
       </div>
     </div>
     <div id="monitor-controls" class="controls">
-      <label>Camera <select id="camera" aria-label="Monitor camera mode">
+      <details class="view-options"><summary>View options</summary><div class="view-options-body"><label>Camera <select id="camera" aria-label="Monitor camera mode">
         <option value="free" selected>Free (no auto-move)</option>
         <option value="selected">Follow selected</option>
         <option value="visible">Follow visible</option>
       </select></label>
       <button id="fit-visible" type="button">Fit visible</button>
       <label><input id="show-inactive" type="checkbox">Show inactive positions</label>
-      <span id="monitor-count" aria-live="polite"></span>
+      <span id="monitor-count" aria-live="polite"></span></div></details>
     </div>
     <div id="history-controls" hidden>
       <label>Browse <select id="history-filter" aria-label="Filter recording runs">
         <option value="">All recordings</option>
       </select></label>
-      <button id="older-runs" type="button" hidden>Older recordings</button>
       <span id="runs-status"></span>
-      <label>From <input id="from" type="datetime-local" step="1"></label>
+      <details id="history-actions" class="history-actions"><summary>Tools &amp; filters</summary>
+        <div class="history-actions-body">
+      <button id="older-runs" type="button" hidden>Older recordings</button>
+
+      <details class="time-options"><summary>Time interval</summary><div class="time-fields"><label>From <input id="from" type="datetime-local" step="1"></label>
       <label>To <input id="to" type="datetime-local" step="1"></label>
-      <button id="apply" type="button">Show interval</button>
+      <button id="apply" type="button">Show interval</button></div></details>
       <button id="more" type="button" hidden>Load more</button>
-      <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Tracks <span id="layer-count">1 visible</span></button>
-      <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">Inspect place</button>
-      <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Across places</button>
+      <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Compare tracks <span id="layer-count">1 visible</span></button>
+      <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">Investigate place</button>
+      <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Compare runs</button>
       <span id="compare-status" aria-live="polite"></span>
       <span id="page-status" aria-live="polite"></span>
+        </div>
+      </details>
     </div>
+  </header>
+  <div class="map-stage">
+    <main id="map" aria-label="GPS observation map"></main>
+    <aside id="analysis-drawer" class="analysis-drawer" hidden aria-label="Investigation tools">
+      <div class="drawer-heading"><strong id="drawer-title">Investigation</strong><button type="button" id="drawer-close" aria-label="Close investigation tools">×</button></div>
     <div id="layers-panel" hidden>
       <div id="layers-list" role="group" aria-label="Visible comparison tracks"></div>
       <label>Comparison time <select id="compare-time" aria-label="Comparison time range">
@@ -125,6 +160,7 @@
         <span id="place-status">Click a location on the map to inspect loaded observations.</span>
       </div>
       <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
+      <details class="place-filters"><summary>Scope and time (optional)</summary>
       <div class="controls" aria-label="Recorded place search filters">
         <label>Scope <select id="place-scope" aria-label="Place search source or channel">
           <option value="">All sources and channels</option>
@@ -132,6 +168,7 @@
         <label>From <input id="place-from" type="datetime-local" step="1" aria-label="Place receipt time from"></label>
         <label>To <input id="place-to" type="datetime-local" step="1" aria-label="Place receipt time to"></label>
       </div>
+      </details>
       <div class="controls">
         <button id="place-search" type="button" disabled>Search recorded history</button>
         <button id="place-next" type="button" hidden>Older search page</button>
@@ -194,8 +231,8 @@
       </section>
       <small>Each row is an anchor fix and one nearby fix from the other run, compared by receiver receipt time. Click Map pair to see the two fixes without connecting them. Results are not meetings, visits, continuous presence or verified devices. Incomplete pages and candidate caps are reported.</small>
     </div>
-  </header>
-  <main id="map" aria-label="GPS observation map"></main>
+    </aside>
+  </div>
   <div id="inspect" hidden>
     <output id="gap-status" aria-live="polite"></output>
     <label for="position" title="Click a route dot or line to inspect a recorded point">Inspect point</label>
