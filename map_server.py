@@ -48,6 +48,21 @@ _RFC3339_MS = re.compile(
 _CURSOR = re.compile(r"(-?[0-9]{1,19}):([1-9][0-9]{0,18})\Z")
 
 
+def parse_optional_timestamp(params, name):
+    value = params.get(name, [None])[0]
+    if value is None:
+        return None
+    if not _RFC3339_MS.fullmatch(value):
+        raise ValueError(f"{name} must be an RFC3339 timestamp with millisecond precision")
+    try:
+        date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        delta = date.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f"invalid {name} timestamp") from exc
+    return ((delta.days * 86400 + delta.seconds) * 1000
+            + delta.microseconds // 1000)
+
+
 def parse_history_query(query):
     """Validate bounded UTC intervals; reject ambiguous or repeated parameters."""
     if len(query) > 512:
@@ -65,21 +80,8 @@ def parse_history_query(query):
     if not valid_track_id(track_id):
         raise ValueError("track_id is required and must be a valid identifier")
 
-    def timestamp(name):
-        value = params.get(name, [None])[0]
-        if value is None:
-            return None
-        if not _RFC3339_MS.fullmatch(value):
-            raise ValueError(f"{name} must be an RFC3339 timestamp with millisecond precision")
-        try:
-            date = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            delta = date.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
-        except (ValueError, OverflowError) as exc:
-            raise ValueError(f"invalid {name} timestamp") from exc
-        return ((delta.days * 86400 + delta.seconds) * 1000
-                + delta.microseconds // 1000)
-
-    from_ms, to_ms = timestamp("from"), timestamp("to")
+    from_ms, to_ms = (parse_optional_timestamp(params, "from"),
+                      parse_optional_timestamp(params, "to"))
     if from_ms is not None and to_ms is not None and from_ms >= to_ms:
         raise ValueError("from must precede to")
 
@@ -130,16 +132,17 @@ def parse_runs_query(query):
 
 
 def parse_place_query(query):
-    """Parse a bounded cross-run proximity search; no inferred source identity."""
-    if len(query) > 256:
+    """Parse an exact, bounded place/evidence query on the receipt clock."""
+    if len(query) > 512:
         raise ValueError("query is too long")
     try:
         params = parse_qs(query, keep_blank_values=True, strict_parsing=True,
-                          max_num_fields=5)
+                          max_num_fields=9)
     except ValueError as exc:
         raise ValueError("invalid query string") from exc
-    if set(params) - {"lat", "lon", "radius_m", "limit", "before"} or any(
-            len(values) != 1 for values in params.values()):
+    allowed = {"lat", "lon", "radius_m", "limit", "before", "from", "to",
+               "channel_id", "source_id"}
+    if set(params) - allowed or any(len(values) != 1 for values in params.values()):
         raise ValueError("unknown or repeated place parameter")
     try:
         lat = float(params["lat"][0])
@@ -155,8 +158,22 @@ def parse_place_query(query):
     if raw_before is not None and (re.fullmatch(r"[1-9][0-9]{0,18}", raw_before) is None
                                   or int(raw_before) > (1 << 63) - 1):
         raise ValueError("invalid before cursor")
+    from_ms, to_ms = (parse_optional_timestamp(params, "from"),
+                      parse_optional_timestamp(params, "to"))
+    if from_ms is not None and to_ms is not None and from_ms >= to_ms:
+        raise ValueError("from must precede to")
+    cid = params.get("channel_id", [None])[0]
+    sid = params.get("source_id", [None])[0]
+    if cid is not None and not valid_channel_id(cid):
+        raise ValueError("invalid channel_id")
+    if sid is not None and not valid_source_id(sid):
+        raise ValueError("invalid source_id")
+    if cid is not None and sid is not None:
+        raise ValueError("choose channel_id or source_id")
     return {"lat": lat, "lon": lon, "radius_m": radius,
-            "limit": int(raw_limit), "before": int(raw_before) if raw_before else None}
+            "limit": int(raw_limit), "before": int(raw_before) if raw_before else None,
+            "from_ms": from_ms, "to_ms": to_ms, "channel_id": cid,
+            "source_id": sid}
 
 
 class Server(ThreadingHTTPServer):

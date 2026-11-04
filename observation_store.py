@@ -565,7 +565,8 @@ class ObservationStore:
             "next_cursor": f"{selected[-1][1]}:{selected[-1][0]}" if more else None,
         }
 
-    def place_observations(self, lat, lon, radius_m, *, limit=50, before=None):
+    def place_observations(self, lat, lon, radius_m, *, limit=50, before=None,
+                           from_ms=None, to_ms=None, channel_id=None, source_id=None):
         """Find recorded fixes near a place across *all* recording runs.
 
         A bounding box narrows indexed candidates; great-circle distance then
@@ -583,6 +584,17 @@ class ObservationStore:
             raise ValueError("limit must be 1..100")
         if before is not None and (type(before) is not int or not 1 <= before <= (1 << 63) - 1):
             raise ValueError("invalid before cursor")
+        for name, value in (("from", from_ms), ("to", to_ms)):
+            if value is not None and (type(value) is not int or not -(1 << 63) <= value < (1 << 63)):
+                raise ValueError(f"invalid {name} timestamp")
+        if from_ms is not None and to_ms is not None and from_ms >= to_ms:
+            raise ValueError("from must precede to")
+        if channel_id is not None and not valid_channel_id(channel_id):
+            raise ValueError("invalid channel_id")
+        if source_id is not None and not valid_source_id(source_id):
+            raise ValueError("invalid source_id")
+        if channel_id is not None and source_id is not None:
+            raise ValueError("choose channel_id or source_id")
         # Conservative bounding box, including near the poles and date line.
         delta_lat = radius_m / 110_000
         low_lat, high_lat = max(-90, lat - delta_lat), min(90, lat + delta_lat)
@@ -598,6 +610,20 @@ class ObservationStore:
             lon_clause, lon_params = "AND (o.lon >= ? OR o.lon <= ?)", [lon_low, lon_high - 360]
         else:
             lon_clause, lon_params = "AND o.lon BETWEEN ? AND ?", [lon_low, lon_high]
+        filters, filter_params = [], []
+        if from_ms is not None:
+            filters.append("o.received_ms >= ?")
+            filter_params.append(from_ms)
+        if to_ms is not None:
+            filters.append("o.received_ms < ?")
+            filter_params.append(to_ms)
+        if channel_id is not None:
+            filters.append("r.channel_id = ?")
+            filter_params.append(channel_id)
+        if source_id is not None:
+            filters.append("r.source_id = ?")
+            filter_params.append(source_id)
+        extra_where = "".join(f" AND {clause}" for clause in filters)
         # Limit candidate rows transferred to Python. SQLite's indexed
         # bounding-box lookup can still scan/sort more entries internally;
         # this is a result bound, not a global CPU-time guarantee.
@@ -610,12 +636,12 @@ class ObservationStore:
             LEFT JOIN sources s ON s.source_id = r.source_id
             LEFT JOIN channel_labels c ON c.channel_id = r.channel_id
             WHERE o.lat BETWEEN ? AND ? {lon_clause}
-                  AND o.id < ?
+                  AND o.id < ? {extra_where}
             ORDER BY o.id DESC LIMIT ?
         """
         params = [low_lat, high_lat, *lon_params,
                   before if before is not None else (1 << 63) - 1,
-                  MAX_PLACE_CANDIDATES + 1]
+                  *filter_params, MAX_PLACE_CANDIDATES + 1]
         with self._lock:
             rows = self._db.execute(sql, params).fetchall()
         matches = []

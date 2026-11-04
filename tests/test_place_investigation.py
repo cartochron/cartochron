@@ -92,6 +92,48 @@ class PlaceSearchTest(unittest.TestCase):
         finally:
             store.close()
 
+    def test_time_window_and_exact_channel_source_filters(self):
+        store = ObservationStore()
+        try:
+            source_a = store.enroll('A')
+            source_b = store.enroll('B')
+            epoch = 1_800_000_000_000_000_000
+            with patch('observation_store.time.time_ns', return_value=epoch):
+                store.record(0, 0, 'a1', source_a, channel_id='gpsd.a')
+            with patch('observation_store.time.time_ns', return_value=epoch + 1_000_000):
+                store.record(0, 0, 'a2', source_a, channel_id='msf.a')
+            with patch('observation_store.time.time_ns', return_value=epoch + 2_000_000):
+                store.record(0, 0, 'b1', source_b, channel_id='gpsd.b')
+            since = epoch // 1_000_000 + 1
+            until = since + 1
+            self.assertEqual([p['track_id'] for p in store.place_observations(
+                0, 0, 100, from_ms=since, to_ms=until)['points']], ['a2'])
+            self.assertEqual([p['track_id'] for p in store.place_observations(
+                0, 0, 100, channel_id='gpsd.a')['points']], ['a1'])
+            self.assertEqual([p['track_id'] for p in store.place_observations(
+                0, 0, 100, source_id=source_a)['points']], ['a2', 'a1'])
+            self.assertEqual(store.place_observations(
+                0, 0, 100, source_id=source_b, to_ms=since)['points'], [])
+            page = store.place_observations(0, 0, 100, source_id=source_a, limit=1)
+            self.assertEqual([p['track_id'] for p in page['points']], ['a2'])
+            self.assertEqual([p['track_id'] for p in store.place_observations(
+                0, 0, 100, source_id=source_a, limit=1,
+                before=int(page['next_cursor']))['points']], ['a1'])
+        finally:
+            store.close()
+
+    def test_invalid_place_filter_values_are_not_coerced(self):
+        store = ObservationStore()
+        try:
+            for kwargs in ({'from_ms': True}, {'to_ms': 3.1},
+                           {'from_ms': 5, 'to_ms': 5}, {'source_id': ''},
+                           {'channel_id': 'bad space'},
+                           {'channel_id': 'gpsd.a', 'source_id': 'src_' + 'a' * 24}):
+                with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                    store.place_observations(0, 0, 100, **kwargs)
+        finally:
+            store.close()
+
     def test_v5_to_v6_migration_adds_only_index(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'observations.sqlite3'
@@ -130,6 +172,30 @@ class PlaceHttpTest(unittest.TestCase):
             return res.status, json.loads(res.read())
         finally:
             conn.close()
+
+    def test_place_scope_and_receipt_time_are_validated_over_http(self):
+        from datetime import datetime, timezone
+        source = self.server.store.enroll('Controlled source')
+        with patch('observation_store.time.time_ns', return_value=1_800_000_000_000_000_000):
+            self.server.store.record(0, 0, 'gpsd', source, channel_id='gpsd.a')
+        with patch('observation_store.time.time_ns', return_value=1_800_000_001_000_000_000):
+            self.server.store.record(0, 0, 'msf', source, channel_id='msf.a')
+        t0 = datetime.fromtimestamp(1_800_000_000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        t1 = datetime.fromtimestamp(1_800_000_001, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        base = '/api/place/observations?lat=0&lon=0&radius_m=100'
+        code, result = self.get(base + '&from=' + t0 + '&to=' + t1)
+        self.assertEqual(code, 200)
+        self.assertEqual([p['track_id'] for p in result['points']], ['gpsd'])
+        code, result = self.get(base + '&source_id=' + source)
+        self.assertEqual([p['track_id'] for p in result['points']], ['msf', 'gpsd'])
+        code, result = self.get(base + '&channel_id=msf.a')
+        self.assertEqual([p['track_id'] for p in result['points']], ['msf'])
+        for suffix in ('&from=2026-11-04', '&to=2026-11-04T12:00:00',
+                       '&from=invalid', '&channel_id=bad%20id',
+                       '&source_id=invalid', '&source_id=' + source + '&channel_id=msf.a',
+                       '&from=' + t1 + '&to=' + t0, '&to=' + t0 + '&to=' + t1):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(self.get(base + suffix)[0], 400)
 
     def test_query_validation_auth_and_run_isolation(self):
         self.server.store.record(47, 28, 'older')
