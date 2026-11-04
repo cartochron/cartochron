@@ -209,6 +209,41 @@ reporting any finding. A geographic distance computed from reported
 coordinates is not a measured distance between physical people. Repeated fixes
 are not automatically independent measurements or evidence of a visit/dwell.
 
+### 8. Across places: where do two recording histories have close reported fixes?
+
+The place inspector asks about a **chosen location**. The **Across places**
+control in History asks a different, narrower question: *do these two
+particular recorded runs contain any close reported fixes with nearby receipt
+times, anywhere on the map?*
+
+Select the first run in History, open **Across places**, choose a second run
+from the suggested runs (or type its exact run ID if older or filtered out),
+and set a geographic separation (50–1000 m in
+the interface) and a receipt-time window (1, 5 or 15 minutes). Click
+**Find observation pairs**. Optionally tick **Use History From/To** to limit
+which observations from the first run become anchors. This search reads the
+stored database, not the browser's loaded route dots.
+
+Each candidate supplies **two specific fixes** and their original run IDs,
+source/channel claims, receipt times, time difference and reported-coordinate
+distance. Click **Map pair** to frame their reported positions. Two coincident
+reports share one visual symbol with both identifiers available. There is no
+line between them: that line would be a movement assertion we did not observe.
+
+The search is bounded: one nearby reported fix is selected per anchor, up to
+200 anchors examined per page. When there is more evidence, click **Older
+candidate page**. A dense target run may exceed the per-anchor candidate
+budget; the interface warns that comparisons could be missing. Changing a
+run, radius, time window, or interval invalidates the old results.
+
+**Do not report these as meetings.** The two coordinates and receipt times
+are producer reports, not verified physical locations or acquisition times.
+Two channels may describe the same phone, and repeated cached fixes need not
+be independent observations. Also, **no candidate pair** in a bounded search
+is not evidence that two people were apart. Record the run IDs, query
+parameters, exact supporting fix IDs, coverage warnings and alternative
+explanations alongside any investigative hypothesis.
+
 ## Part V — Three worked lines of inquiry
 
 **Question A: Was this source continuously present?** Select the source in

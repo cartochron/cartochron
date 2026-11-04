@@ -177,6 +177,56 @@ Database schema v6 adds only a latitude/longitude lookup index on top of v5;
 back up the database before upgrading and do not downgrade the running
 receiver afterward.
 
+## Compare two runs across all recorded places (post-v0.1)
+
+The read-only `GET /api/proximity` searches **stored observations from two
+explicitly selected recording runs**, without requiring an initial map point
+or loading those runs into the browser:
+
+```text
+GET /api/proximity?track_id=run-a&other_track_id=run-b&radius_m=100&window_s=300
+```
+
+`radius_m` is 10–1000 metres, `window_s` is **60, 300 or 900 seconds** on the
+**server receipt clock**, and `limit` is 1–40 witnesses (default 20). Optional
+`from` and `to` use RFC3339 `[from, to)` receipt-time bounds on the *first*
+(anchor) run. This is not a test of the producer-reported measurement clock.
+Both run IDs must exist and be different. They must have distinct enrolled
+source claims, or at least distinct configured channel claims; the latter
+is **not** evidence of two different physical devices. Runs sharing an enrolled
+source or channel cannot be compared. Channels carrying incompatible enrolled
+source claims are rejected rather than silently reattributed.
+
+For each examined anchor observation, the endpoint returns **at most one**
+qualifying observation from the second run. Candidate observations must be
+within the chosen receipt-time window **and** the great-circle radius between
+*reported coordinates*. Pairs preserve both original observation IDs, run IDs,
+receipt and available measurement times, reported accuracy, source/channel
+labels and the derived `distance_m` and `receipt_delta_ms`. No synthetic
+intermediate observations, joined routes, visits or encounters are created.
+
+The search examines up to **200 anchor fixes per HTTP page** and at most
+**100 spatial bounding-box candidates on each side of each anchor's receipt
+time**. This bounds candidate transfer into Python, not the total work SQLite
+might perform against dense inputs. Candidate windows are ordered by time via
+the existing `(track_id, received_ms, id)` index. `scanned` counts anchors;
+`pairs` is the returned witness list; `candidate_limited` warns that dense
+windows may have omitted possible matches. A page with no pairs can still have
+more anchors. Do **not** interpret either the absence of matches or a complete
+page with `candidate_limited=true` as proof of separation.
+
+The `next_cursor` value is `received_ms:id` for the last examined anchor;
+pass it unchanged as `before=...` with the same two runs, radius, time window,
+and optional receipt-time bounds. When null, the anchor traversal finished at
+that point in time; it is not a database snapshot under concurrent ingestion.
+The result is a **bounded sample of candidate pairs**, not a count of all
+cross-run pairs. Reversing the run order can produce different candidates.
+
+The History interface exposes this as **Across places**. A pair can be shown
+on the map as two independent markers, with no connecting route. Separate
+source and channel assertions remain visible, including when their display
+labels change.
+
 ## Manual ingestion test
 
 With the default, unauthenticated local server:

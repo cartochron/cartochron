@@ -41,6 +41,7 @@
       <li><a href="#compare">Compare tracks</a></li>
       <li><a href="#time">Shared time</a></li>
       <li><a href="#place">Inspect a place</a></li>
+      <li><a href="#across-places">Compare across places</a></li>
       <li><a href="#questions">Common questions</a></li>
     </ul></nav>
   </div>
@@ -107,7 +108,17 @@
   <p>This counts <em>observation pairs</em>, not meetings or visits. High-frequency reports can yield many pairs; only 40 closest receipt-time pairs are displayed. Load older search pages or narrow the time range to test a hypothesis, and check for incomplete coverage. A missing pair does not establish that two devices were apart. The server's receipt clock is not necessarily the time a GPS fix was acquired.</p>
   <p>Neither list establishes a continuous visit, physical identity or intent. A nearby fix may be cached or inaccurate; any stated accuracy comes from the producer, not from independent verification.</p>
 
-  <h2 id="questions">6. Common questions</h2>
+  <h2 id="across-places">6. Compare two recorded runs without selecting a place</h2>
+  <ol class="steps">
+    <li>In <strong>History</strong>, select the first recording run. Open <strong>Across places</strong>, then choose the second run from suggestions or enter its exact run ID if it is not listed.</li>
+    <li>Choose a separation distance and a <strong>1, 5 or 15 minute receipt-time</strong> window. The optional <strong>Use History From/To</strong> checkbox restricts the first run's anchor observations.</li>
+    <li>Click <strong>Find observation pairs</strong>. The database searches across the two runs' recorded locations, not only the points loaded into the browser or near one selected place.</li>
+    <li>Each result names two original fixes. <strong>Map pair</strong> frames the two reported positions as separate map markers, never as a joined route. <strong>Older candidate page</strong> advances the bounded comparison.</li>
+  </ol>
+  <p>The comparison selects at most one nearby fix from the second run per examined fix in the first run. Pages examine up to 200 first-run observations and cap dense second-run candidate windows. The screen explicitly reports when further pages remain or candidate windows were capped. Results can differ if you reverse the selected runs. A missing pair is not proof of physical separation.</p>
+  <p>Runs sharing the same enrolled source or acquisition channel are not considered independent, and a channel with contradictory source assertions is refused. Different channel claims alone do not prove two phones. Matching receipt times do not establish matching GPS measurement times. These are <em>observation witnesses, not meetings or visits</em>.</p>
+
+  <h2 id="questions">7. Common questions</h2>
   <h3>Why is my comparison track missing?</h3>
   <p>Open <strong>Tracks</strong> and verify that it is checked. If <strong>Comparison time</strong> says <strong>Same interval</strong>, its observations might fall outside the focused run's time window. Try <strong>Entire runs (spatial)</strong> to compare locations across different times.</p>
   <h3>Why is there no line, or why does the line stop?</h3>

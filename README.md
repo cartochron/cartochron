@@ -4,7 +4,8 @@ Cartochron records and displays location observations for authorized security
 research. The Python receiver accepts observations over HTTP and stores them
 in SQLite; an optional Metasploit Android adapter supplies reported positions.
 The Leaflet viewer lets you follow individual recording runs, inspect history,
-compare runs, and see where observation gaps or possible positioning jumps
+compare runs, find receipt-time proximity witnesses across recorded places,
+and see where observation gaps or possible positioning jumps
 make movement uncertain. Monitor follows the newest run for each configured
 channel or enrolled source; History retains separate recording runs. Receipt
 freshness cannot verify whether a producer is connected.
