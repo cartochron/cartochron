@@ -1053,3 +1053,126 @@ test('older comparison pages respect the cumulative display limit', async () => 
   assert.equal(ui.exec('proximityCount'), 100);
   assert.equal(ui.element('proximity-next').hidden, true);
 });
+
+test('witness timeline loads bounded receipt-time context for exactly two runs', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  const a0 = {...point(0, 0), track_id: 'run-a'};
+  const a = {...point(1, 12), track_id: 'run-a', channel_label: 'OnePlus GPSD', accuracy_m: 8};
+  const a2 = {...point(2, 13), track_id: 'run-a'};
+  const b0 = {...point(3, 10), track_id: 'run-b'};
+  const b = {...point(4, 12), track_id: 'run-b', measured_time: point(4, 11).time};
+  const b2 = {...point(5, 14), track_id: 'run-b'};
+  const pair = {a, b, receipt_delta_ms: 0, distance_m: 20};
+  const requests = [];
+  ui.context.fetch = async url => {
+    requests.push(url);
+    const track = new URL(url, 'http://localhost').searchParams.get('track_id');
+    return {ok: true, json: async () => track === 'run-a'
+      ? {track_id: 'run-a', points: [a0, a, a2], truncated: false, next_cursor: null}
+      : {track_id: 'run-b', points: [b0, b, b2], truncated: false, next_cursor: null}};
+  };
+  ui.context.fixturePair = pair;
+  await ui.exec('inspectWitnessTimeline(fixturePair)');
+  assert.equal(requests.length, 2);
+  for (const url of requests) {
+    const query = new URL(url, 'http://localhost').searchParams;
+    assert.equal(query.get('limit'), '1000');
+    assert.equal(Date.parse(query.get('from')), Date.parse(a.time) - 15 * 60_000);
+    assert.equal(Date.parse(query.get('to')), Date.parse(a.time) + 15 * 60_000 + 1);
+  }
+  assert.equal(ui.element('witness-timeline').hidden, false);
+  const events = ui.element('witness-timeline-events').children;
+  assert.equal(events.length, 7); // Two witnesses, four neighboring fixes, one internal gap.
+  assert.equal(events.filter(row => row.children[0].textContent.includes('Recorded gap')).length, 1);
+  const gap = events.find(row => row.children[0].textContent.includes('Recorded gap'));
+  assert.match(gap.children[0].textContent, /A · channel OnePlus GPSD · Recorded gap 12\.0 min/);
+  assert.match(ui.element('witness-timeline-status').textContent, /Loaded A: 3 fixes; B: 3 fixes/);
+  assert.match(ui.element('witness-timeline-status').textContent, /receiver receipts/);
+  assert.equal(ui.exec('proximityLayer.layers.length'), 0); // No automatic map movement.
+  const marker = events.find(row => row.children[0].textContent.includes('Selected witness'));
+  marker.children[1].events.click();
+  assert.equal(ui.exec('proximityLayer.layers.length'), 1);
+  assert.equal(ui.exec('overlayLayers.size'), 0); // No joining route.
+});
+
+test('witness timeline never invents a gap between different recording runs', () => {
+  const ui = viewer();
+  const a = {...point(0, 0), track_id: 'run-a'};
+  const b = {...point(1, 30), track_id: 'run-b'};
+  ui.context.fixture = {a, b};
+  const events = ui.exec(`witnessContextEvents(fixture, {
+    a: {points: [fixture.a]}, b: {points: [fixture.b]}
+  })`);
+  assert.equal(events.length, 2);
+  assert(events.every(event => event.kind === 'witness'));
+  assert(events[0].at <= events[1].at);
+});
+
+test('partial witness window and absent witness cannot be mistaken for complete history', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  const a = {...point(1, 12), track_id: 'run-a'};
+  const b = {...point(2, 13), track_id: 'run-b'};
+  ui.context.fixture = {a, b};
+  ui.context.fetch = async url => ({ok: true, json: async () => ({
+    track_id: new URL(url, 'http://localhost').searchParams.get('track_id'),
+    points: [{...point(0, 0), track_id: 'run-a'}],
+    truncated: true, next_cursor: 'cursor'
+  })});
+  await ui.exec('inspectWitnessTimeline(fixture)');
+  assert.match(ui.element('witness-timeline-status').textContent, /Partial context/);
+  assert.match(ui.element('witness-timeline-status').textContent, /witness is outside the retrieved context page/);
+  assert.equal(ui.element('witness-timeline-events').children.length, 2); // Evidence from pair query retained.
+  assert(ui.element('witness-timeline-events').children.every(
+    row => row.children[0].textContent.includes('Not in retrieved context page')));
+});
+
+test('a changed comparison discards late context replies', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  const a = {...point(0, 0), track_id: 'run-a'};
+  const b = {...point(1, 1), track_id: 'run-b'};
+  ui.context.fixture = {a, b};
+  const replies = [];
+  ui.context.fetch = () => new Promise(resolve => replies.push(resolve));
+  const pending = ui.exec('inspectWitnessTimeline(fixture)');
+  assert.equal(replies.length, 2);
+  ui.exec('resetRunProximity()');
+  for (let i = 0; i < replies.length; i++) replies[i]({ok: true, json: async () => ({
+    track_id: i === 0 ? 'run-a' : 'run-b', points: [i === 0 ? a : b],
+    truncated: false, next_cursor: null
+  })});
+  await pending;
+  assert.equal(ui.element('witness-timeline').hidden, true);
+  assert.equal(ui.element('witness-timeline-events').children.length, 0);
+});
+
+test('Across places offers timeline inspection without fetching context until selected', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  const a = {...point(0, 0), track_id: 'run-a'}, b = {...point(1, 1), track_id: 'run-b'};
+  let calls = 0;
+  ui.context.fetch = async url => {
+    calls++;
+    return {ok: true, json: async () => url.startsWith('/api/proximity?')
+      ? {pairs: [{a, b, distance_m: 30, receipt_delta_ms: 1000, identity_kind: 'channel'}],
+         scanned: 1, next_cursor: null, candidate_limited: false}
+      : {track_id: new URL(url, 'http://localhost').searchParams.get('track_id'),
+         points: [url.includes('run-a') ? a : b], truncated: false, next_cursor: null}};
+  };
+  await ui.exec('searchRunProximity()');
+  assert.equal(calls, 1); // No eager second-run history load.
+  const row = ui.element('proximity-results').children[0];
+  assert.equal(row.children[2].textContent, 'Inspect timeline');
+  await row.children[2].events.click();
+  // DOM listener does not return promise; flush queued microtasks.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 3);
+  assert.match(ui.element('witness-timeline-status').textContent, /Loaded A: 1 fixes; B: 1 fixes/);
+});

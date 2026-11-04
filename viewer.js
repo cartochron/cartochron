@@ -33,6 +33,9 @@ let proximityCount = 0;
 let proximityScanned = 0;
 let proximityLimited = false;
 const MAX_PROXIMITY_DISPLAY = 100;
+const WITNESS_CONTEXT_MS = 15 * 60 * 1000;
+const WITNESS_CONTEXT_LIMIT = 1000; // One bounded history page per run, never a complete-history claim.
+let witnessTimelineRevision = 0;
 let placeSelection = null;
 let placeSearchRevision = 0;
 let placeSearchCursor = null;
@@ -203,7 +206,143 @@ function updateProximityChoices() {
   $('proximity-search').disabled = !selectedTrack || !input.value;
 }
 
+function clearWitnessTimeline() {
+  witnessTimelineRevision++;
+  $('witness-timeline').hidden = true;
+  $('witness-timeline-events').replaceChildren();
+  $('witness-timeline-status').textContent = '';
+}
+
+function receiptMs(point) {
+  return Number.isFinite(point.received_ms) ? point.received_ms : Date.parse(point.time);
+}
+
+function witnessContextEvents(pair, windows) {
+  // Each run's page is ordered by receiver receipt time. A gap is only
+  // meaningful between consecutive retrieved fixes of that *same* run.
+  // Never infer a gap across page or interval boundaries.
+  const events = [];
+  for (const side of ['a', 'b']) {
+    const fixes = windows[side].points;
+    const witness = pair[side];
+    const index = fixes.findIndex(p => p.id === witness.id);
+    if (index < 0) {
+      events.push({kind: 'witness', side, point: witness, outsidePage: true,
+        at: receiptMs(witness)});
+    } else {
+      if (index > 0)
+        events.push({kind: 'neighbor', side, point: fixes[index - 1],
+          relation: 'Preceding fix', at: receiptMs(fixes[index - 1])});
+      events.push({kind: 'witness', side, point: witness, at: receiptMs(witness)});
+      if (index + 1 < fixes.length)
+        events.push({kind: 'neighbor', side, point: fixes[index + 1],
+          relation: 'Following fix', at: receiptMs(fixes[index + 1])});
+    }
+    for (let i = 1; i < fixes.length; i++) {
+      const previous = fixes[i - 1], current = fixes[i];
+      const gap = receiptMs(current) - receiptMs(previous);
+      if (gap > GAP_MS) events.push({kind: 'gap', side, before: previous, after: current,
+        gap, at: receiptMs(current)});
+    }
+  }
+  // Chronological, not grouped by source or sorted by reported measurement clock.
+  return events.sort((a, b) => a.at - b.at || a.side.localeCompare(b.side));
+}
+
+function witnessIdentity(point) {
+  // Descriptive claims, never independently verified physical device identities.
+  const channel = point.channel_label || point.channel_id;
+  const source = point.source_label || point.source_id;
+  return [channel ? `channel ${channel}` : '', source ? `source ${source}` : '']
+    .filter(Boolean).join(' · ') || 'unattributed';
+}
+
+function mapWitnessFix(side, point) {
+  // A standalone observation marker; never connect the two sources with a line.
+  proximityLayer.clearLayers();
+  const label = document.createElement('span');
+  label.textContent = `${side.toUpperCase()}: ${witnessIdentity(point)} · ${point.track_id} / fix ${point.id}`
+    + ` · Received ${localTime(point.time)} · ${fixDetails(point)}`;
+  L.circleMarker([point.lat, point.lon], {
+    radius: 8, color: '#edf2f5', weight: 2,
+    fillColor: side === 'a' ? '#57b9ef' : '#8724d5', fillOpacity: 0.95
+  }).bindTooltip(label).on('click', () => L.popup()
+    .setLatLng([point.lat, point.lon]).setContent(label).openOn(map)).addTo(proximityLayer);
+  fitObservations([point]);
+}
+
+async function inspectWitnessTimeline(pair) {
+  clearWitnessTimeline();
+  const token = witnessTimelineRevision;
+  $('witness-timeline').hidden = false;
+  $('witness-timeline-status').textContent = 'Loading recorded context from both runs…';
+  const times = [receiptMs(pair.a), receiptMs(pair.b)];
+  if (!times.every(Number.isFinite)) {
+    $('witness-timeline-status').textContent = 'Cannot inspect this pair: invalid receipt time.';
+    return;
+  }
+  const start = Math.max(0, Math.min(...times) - WITNESS_CONTEXT_MS);
+  const end = Math.max(...times) + WITNESS_CONTEXT_MS + 1;
+  const query = point => '/api/points?' + new URLSearchParams({
+    track_id: point.track_id, from: new Date(start).toISOString(),
+    to: new Date(end).toISOString(), limit: String(WITNESS_CONTEXT_LIMIT)
+  });
+  try {
+    const [a, b] = await Promise.all([getJSON(query(pair.a)), getJSON(query(pair.b))]);
+    if (token !== witnessTimelineRevision || mode !== 'history' || $('proximity-panel').hidden) return;
+    if (a.track_id !== pair.a.track_id || b.track_id !== pair.b.track_id)
+      throw new Error('history response run mismatch');
+    // Point history has run identity at response level, not on each fix.
+    // Attach it only to these presentation copies; stored evidence is unchanged.
+    const windows = {
+      a: {...a, points: a.points.map(point => ({...point, track_id: a.track_id}))},
+      b: {...b, points: b.points.map(point => ({...point, track_id: b.track_id}))}
+    };
+    const events = witnessContextEvents(pair, windows);
+    for (const event of events) {
+      const li = document.createElement('li');
+      const summary = document.createElement('span');
+      const side = event.side.toUpperCase();
+      const identity = witnessIdentity(pair[event.side]);
+      if (event.kind === 'gap') {
+        summary.textContent = `${side} · ${identity} · Recorded gap ${(event.gap / 60000).toFixed(1)} min`
+          + ` between fix ${event.before.id} (${localTime(event.before.time)}) and `
+          + `fix ${event.after.id} (${localTime(event.after.time)}). No intervening fixes in this run.`;
+        li.appendChild(summary);
+      } else {
+        const prefix = event.kind === 'witness' ? 'Selected witness' : event.relation;
+        summary.textContent = `${side} · ${identity} · ${prefix} · ${event.point.track_id} / fix ${event.point.id}`
+          + ` · Received ${localTime(event.point.time)} · ${fixDetails(event.point)}`
+          + (event.outsidePage ? ' · Not in retrieved context page' : '');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Map fix';
+        button.addEventListener('click', () => mapWitnessFix(event.side, {...event.point,
+          channel_label: pair[event.side].channel_label, channel_id: pair[event.side].channel_id,
+          source_label: pair[event.side].source_label, source_id: pair[event.side].source_id}));
+        li.appendChild(summary);
+        li.appendChild(button);
+      }
+      $('witness-timeline-events').appendChild(li);
+    }
+    const partial = a.truncated || b.truncated || a.next_cursor || b.next_cursor;
+    const outside = events.some(event => event.outsidePage);
+    const gaps = events.filter(event => event.kind === 'gap').length;
+    $('witness-timeline-status').textContent = `Receipt-time window ${localTime(new Date(start))} – `
+      + `${localTime(new Date(end))}. Loaded A: ${a.points.length} fixes; B: ${b.points.length} fixes. `
+      + `Showing both witnesses, immediate neighboring fixes and ${gaps} internal gap${gaps === 1 ? '' : 's'}. `
+      + (partial ? 'Partial context: more recorded observations remain in at least one run; later receipts may be omitted. ' :
+        'The requested interval was retrieved, not necessarily the full runs. ')
+      + (outside ? 'At least one witness is outside the retrieved context page. ' : '')
+      + 'All times are receiver receipts; gaps do not establish disconnection, and proximity does not establish a meeting.';
+  } catch (error) {
+    if (token === witnessTimelineRevision)
+      $('witness-timeline-status').textContent = 'Witness context unavailable: ' + error.message;
+  }
+}
+
 function resetRunProximity() {
+  clearWitnessTimeline();
   proximityRevision++;
   proximityCursor = null;
   proximityCount = 0;
@@ -294,8 +433,13 @@ async function searchRunProximity(more = false) {
       button.type = 'button';
       button.textContent = 'Map pair';
       button.addEventListener('click', () => showRunWitness(pair));
+      const timeline = document.createElement('button');
+      timeline.type = 'button';
+      timeline.textContent = 'Inspect timeline';
+      timeline.addEventListener('click', () => inspectWitnessTimeline(pair));
       li.appendChild(details);
       li.appendChild(button);
+      li.appendChild(timeline);
       $('proximity-results').appendChild(li);
     }
     const capped = proximityCount >= MAX_PROXIMITY_DISPLAY;

@@ -24,6 +24,9 @@
     #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
     #place-status, #place-cluster-status, #place-proximity-status {font-size:12px;color:#bdd0db}
     #place-clusters, #place-proximity-results {max-height:165px;overflow:auto;padding-left:22px;font-size:12px}
+    #witness-timeline-events {max-height:230px;overflow:auto;padding-left:24px;font-size:12px}
+    #witness-timeline-events li {margin:8px 0}
+    #witness-timeline-events button {margin-left:8px}
     #layers-panel {display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #layers-list {display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:100%}
     .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
@@ -168,6 +171,12 @@
       </div>
       <p id="proximity-status" role="status">Choose a second recorded run; search does not depend on loaded map points.</p>
       <ol id="proximity-results" aria-label="Cross-run spatial and temporal observation pairs"></ol>
+      <section id="witness-timeline" hidden aria-label="Evidence timeline around selected observation pair">
+        <strong>Evidence timeline · selected pair</strong>
+        <p id="witness-timeline-status" role="status"></p>
+        <ol id="witness-timeline-events" aria-label="Chronological witness, adjacent fixes and recorded gaps"></ol>
+        <small>Bounded receiver-receipt window around one candidate pair. It lists supporting observations and gaps inside retrieved runs, not inferred presence or movements between fixes.</small>
+      </section>
       <small>Each row is an anchor fix and one nearby fix from the other run, compared by receiver receipt time. Click Map pair to see the two fixes without connecting them. Results are not meetings, visits, continuous presence or verified devices. Incomplete pages and candidate caps are reported.</small>
     </div>
   </header>
