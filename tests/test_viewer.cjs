@@ -724,3 +724,91 @@ test('changing the selected place invalidates a pending database response', asyn
   assert.match(ui.element('place-db-status').textContent, /Search recorded history/);
   assert.equal(ui.element('place-search').disabled, false);
 });
+
+
+test('place query converts local receipt bounds, filters source and resets on changes', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  ui.element('place-scope').value = 'source:src_' + 'a'.repeat(24);
+  ui.element('place-from').value = '2026-11-03T10:00:00';
+  ui.element('place-to').value = '2026-11-03T11:00:00';
+  const urls = [];
+  ui.context.fetch = async url => {
+    urls.push(url);
+    return {ok: true, json: async () => ({points: [], next_cursor: '40'})};
+  };
+  await ui.exec('searchRecordedPlace()');
+  const query = new URL(urls[0], 'http://localhost').searchParams;
+  assert.equal(query.get('source_id'), 'src_' + 'a'.repeat(24));
+  assert.equal(query.get('channel_id'), null);
+  assert.equal(query.get('from'), new Date(2026, 10, 3, 10, 0, 0).toISOString());
+  assert.equal(query.get('to'), new Date(2026, 10, 3, 11, 0, 0).toISOString());
+  assert.equal(ui.element('place-next').hidden, false);
+  ui.element('place-scope').value = 'channel:gpsd.oneplus';
+  ui.element('place-scope').events.change();
+  assert.equal(ui.element('place-next').hidden, true);
+  assert.match(ui.element('place-db-status').textContent, /Search recorded history/);
+  await ui.exec('searchRecordedPlace()');
+  const second = new URL(urls[1], 'http://localhost').searchParams;
+  assert.equal(second.get('channel_id'), 'gpsd.oneplus');
+  assert.equal(second.get('source_id'), null);
+  assert.equal(second.has('before'), false);
+});
+
+test('invalid receipt-time interval sends no request or stale results', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  ui.element('place-from').value = '2026-11-03T11:00:00';
+  ui.element('place-to').value = '2026-11-03T10:00:00';
+  let count = 0;
+  ui.context.fetch = () => {count++; return Promise.reject(new Error('fetch must not run'));};
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(count, 0);
+  assert.match(ui.element('place-db-status').textContent, /From must precede To/);
+  assert.equal(ui.element('place-search').disabled, false);
+});
+
+test('matching-fix groups stay within each run, expose gaps and remain partial', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  const fix = (id, run, minute, label) => ({
+    id, track_id: run, time: new Date(Date.UTC(2026, 10, 3, 10, minute)).toISOString(),
+    channel_label: label, distance_m: 30, lat: 47, lon: 28,
+  });
+  const pages = [
+    {points: [fix(6,'run-a',9,'<svg onload=attack()>'), fix(5,'run-b',8,'B'),
+      fix(4,'run-a',7,'A')], next_cursor: '3'},
+    {points: [fix(3,'run-a',0,'A'), fix(2,'run-b',1,'B')], next_cursor: null},
+  ];
+  let calls = 0;
+  ui.context.fetch = async () => ({ok: true, json: async () => pages[calls++]});
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(ui.element('place-clusters').children.length, 2);
+  await ui.exec('searchRecordedPlace(true)');
+  assert.equal(ui.element('place-clusters').children.length, 4);
+  assert.equal(ui.element('place-db-results').children.length, 5);
+  assert.match(ui.element('place-cluster-status').textContent, /not visits/);
+  assert.match(ui.element('place-clusters').children.map(x => x.textContent).join(' '), /2 matching fixes/);
+  assert.equal(ui.element('place-clusters').children[0].innerHTML, undefined); // textContent only
+  ui.element('place-from').events.change();
+  assert.equal(ui.element('place-clusters').children.length, 0);
+});
+
+test('place scope choices reuse known identities without selecting a History run', () => {
+  const ui = viewer();
+  ui.context.fixtureMonitor = [{kind:'channel', id:'gpsd.a', channel_id:'gpsd.a',
+    channel_label:'GPSD receiver A'}];
+  ui.context.fixtureSources = [{source_id:'src_' + 'b'.repeat(24), label:'Phone B'}];
+  ui.exec('monitorCatalogue = fixtureMonitor; sourceCatalogue = fixtureSources; historyFilter = ""; updateHistoryFilter()');
+  const scopes = ui.element('place-scope').children;
+  assert.equal(scopes.length, 3);
+  assert.equal(scopes[1].value, 'channel:gpsd.a');
+  assert.equal(scopes[2].value, 'source:src_' + 'b'.repeat(24));
+  assert.equal(ui.exec('historyFilter'), '');
+});

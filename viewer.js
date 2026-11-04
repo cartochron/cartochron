@@ -30,7 +30,10 @@ let placeSelection = null;
 let placeSearchRevision = 0;
 let placeSearchCursor = null;
 let placeSearchCount = 0;
+let placeSearchMatches = [];
 const MAX_PLACE_DISPLAY = 500;
+const PLACE_GROUP_GAP_MS = 5 * 60 * 1000; // A display rule, not inferred dwell.
+const MAX_PLACE_GROUPS = 80;
 
 let catalogue = [];
 let monitorCatalogue = [];
@@ -165,6 +168,13 @@ function updateHistoryFilter() {
   }
   select.replaceChildren(...options);
   select.value = historyFilter;
+  // The place query has its own scope: it must not change History's run selection.
+  const placeScope = $('place-scope');
+  const previous = placeScope.value;
+  placeScope.replaceChildren(new Option('All sources and channels', ''),
+    ...options.slice(1).map(item => new Option(item.text, item.value)));
+  placeScope.value = options.some(item => item.value === previous) ? previous : '';
+  if (previous && placeScope.value !== previous) resetDatabasePlaceSearch();
 }
 
 function monitorPositions() {
@@ -762,12 +772,61 @@ function resetDatabasePlaceSearch() {
   placeSearchRevision++;
   placeSearchCursor = null;
   placeSearchCount = 0;
+  placeSearchMatches = [];
   $('place-db-results').replaceChildren();
+  $('place-clusters').replaceChildren();
+  $('place-cluster-status').textContent = 'Matching-fix groups appear after searching.';
   $('place-next').hidden = true;
   $('place-search').disabled = !placeSelection || mode !== 'history';
   $('place-db-status').textContent = placeSelection
     ? 'Search recorded history to examine all runs, not just loaded points.'
     : 'Select a place to search across all recorded runs.';
+}
+
+function groupedMatchingFixes(fixes) {
+  // Group only retrieved *matching* fixes, by run and receipt-time proximity.
+  // An unobserved departure can occur between any two of these reports.
+  const valid = fixes.filter(p => Number.isFinite(Date.parse(p.time)));
+  valid.sort((a, b) => a.track_id < b.track_id ? -1 : a.track_id > b.track_id ? 1
+    : Date.parse(a.time) - Date.parse(b.time) || a.id - b.id);
+  const groups = [];
+  for (const p of valid) {
+    const time = Date.parse(p.time);
+    let group = groups.at(-1);
+    if (!group || group.track_id !== p.track_id || time - group.last > PLACE_GROUP_GAP_MS) {
+      group = {track_id: p.track_id, name: p.channel_label || p.source_label ||
+        p.channel_id || p.source_id || 'Unattributed', first: time, last: time, count: 0};
+      groups.push(group);
+    }
+    group.last = time;
+    group.count++;
+  }
+  return groups.sort((a, b) => b.last - a.last);
+}
+
+function renderPlaceGroups() {
+  const groups = groupedMatchingFixes(placeSearchMatches);
+  const list = $('place-clusters');
+  list.replaceChildren();
+  for (const group of groups.slice(0, MAX_PLACE_GROUPS)) {
+    const li = document.createElement('li');
+    li.textContent = `${group.name} · run ${group.track_id} · ${group.count} matching fix${group.count === 1 ? '' : 'es'} · `
+      + `${localTime(group.first)}${group.last !== group.first ? ' – ' + localTime(group.last) : ''}`;
+    list.appendChild(li);
+  }
+  $('place-cluster-status').textContent = `${groups.length} matching-fix group${groups.length === 1 ? '' : 's'} in retrieved results`
+    + (groups.length > MAX_PLACE_GROUPS ? `; showing ${MAX_PLACE_GROUPS}` : '')
+    + (placeSearchCursor ? ' (more historical candidates remain)' : '')
+    + '. Groups use a 5-minute maximum gap between matching receipts in the same run;'
+    + ' they are not visits or evidence of continuous presence.';
+}
+
+function placeReceiptFilter(id, name) {
+  const value = $(id).value;
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error(`Invalid ${name} time`);
+  return date.toISOString(); // datetime-local is operator-local; API is UTC.
 }
 
 async function searchRecordedPlace(more = false) {
@@ -778,11 +837,26 @@ async function searchRecordedPlace(more = false) {
     lat: String(placeSelection.lat), lon: String(placeSelection.lon),
     radius_m: $('place-radius').value, limit: '50'
   });
+  try {
+    const from = placeReceiptFilter('place-from', 'From');
+    const to = placeReceiptFilter('place-to', 'To');
+    if (from && to && from >= to) throw new Error('From must precede To');
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    const scope = $('place-scope').value;
+    if (scope.startsWith('channel:')) query.set('channel_id', scope.slice(8));
+    if (scope.startsWith('source:')) query.set('source_id', scope.slice(7));
+  } catch (error) {
+    $('place-db-status').textContent = 'Invalid place search filter: ' + error.message;
+    return;
+  }
   if (more) query.set('before', placeSearchCursor);
   else {
     placeSearchCursor = null;
     placeSearchCount = 0;
+    placeSearchMatches = [];
     $('place-db-results').replaceChildren();
+    $('place-clusters').replaceChildren();
   }
   $('place-search').disabled = true;
   $('place-next').hidden = true;
@@ -796,9 +870,11 @@ async function searchRecordedPlace(more = false) {
       item.textContent = `${localTime(p.time)} · ${name} · run ${p.track_id} · `
         + `${p.distance_m} m · ${fixDetails(p)}`;
       $('place-db-results').appendChild(item);
+      placeSearchMatches.push(p);
       placeSearchCount++;
     }
     placeSearchCursor = page.next_cursor;
+    renderPlaceGroups();
     const moreAvailable = Boolean(page.next_cursor);
     const capped = placeSearchCount >= MAX_PLACE_DISPLAY;
     $('place-next').hidden = !moreAvailable || capped;
@@ -1025,6 +1101,8 @@ $('place-toggle').addEventListener('click', () => {
   if ($('place-panel').hidden) {placeSelection = null; placeLayer.clearLayers(); resetDatabasePlaceSearch();}
 });
 $('place-radius').addEventListener('change', () => {resetDatabasePlaceSearch(); updatePlaceInspector();});
+for (const id of ['place-scope', 'place-from', 'place-to'])
+  $(id).addEventListener('change', resetDatabasePlaceSearch);
 $('place-search').addEventListener('click', () => searchRecordedPlace());
 $('place-next').addEventListener('click', () => searchRecordedPlace(true));
 map.on('click', event => {

@@ -22,7 +22,8 @@
     #place-panel {margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #place-panel .controls {margin-bottom:8px}
     #place-results {margin:5px 0;max-height:115px;overflow:auto;padding-left:22px;font-size:12px}
-    #place-status {font-size:12px;color:#bdd0db}
+    #place-status, #place-cluster-status {font-size:12px;color:#bdd0db}
+    #place-clusters {max-height:165px;overflow:auto;padding-left:22px;font-size:12px}
     #layers-panel {display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;padding:10px;background:#1a2b36;border:1px solid #456273;border-radius:6px}
     #layers-list {display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:100%}
     .track-layer {border:1px solid #456273;border-radius:5px;padding:5px 8px;max-width:240px}
@@ -118,12 +119,23 @@
         <span id="place-status">Click a location on the map to inspect loaded observations.</span>
       </div>
       <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
+      <div class="controls" aria-label="Recorded place search filters">
+        <label>Scope <select id="place-scope" aria-label="Place search source or channel">
+          <option value="">All sources and channels</option>
+        </select></label>
+        <label>From <input id="place-from" type="datetime-local" step="1" aria-label="Place receipt time from"></label>
+        <label>To <input id="place-to" type="datetime-local" step="1" aria-label="Place receipt time to"></label>
+      </div>
       <div class="controls">
         <button id="place-search" type="button" disabled>Search recorded history</button>
         <button id="place-next" type="button" hidden>Older search page</button>
         <span id="place-db-status" role="status">Select a place to search across all recorded runs.</span>
       </div>
-      <ol id="place-db-results" aria-label="Database-wide recorded observations near selected place"></ol>
+      <p id="place-cluster-status">Matching-fix groups appear after searching.</p>
+      <ol id="place-clusters" aria-label="Groups of retrieved matching observations"></ol>
+      <details><summary>Individual matching observations</summary>
+        <ol id="place-db-results" aria-label="Database-wide recorded observations near selected place"></ol>
+      </details>
       <small>Recorded proximity does not establish presence between fixes or intent. Searches are paged, not snapshots.</small>
     </div>
   </header>
