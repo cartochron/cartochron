@@ -5,9 +5,10 @@ from contextlib import closing
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from demo import create_demo
+from demo import create_demo, create_tour, main as demo_main
 from observation_store import ObservationStore
 
 
@@ -78,6 +79,62 @@ class DemoTest(unittest.TestCase):
                 with self.assertRaises(sqlite3.IntegrityError):
                     create_demo(path, 1700000000000)
             self.assertFalse(path.exists())
+
+
+    def test_investigation_tour_has_reproducible_evidence_not_claimed_encounters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tour.sqlite3"
+            create_tour(path, 1_800_000_000_000)
+            store = ObservationStore(path)
+            try:
+                runs = store.tracks()["tracks"]
+                self.assertEqual(len(runs), 7)
+                self.assertEqual(len(store.history("demo-oneplus-morning")["points"]), 48)
+                morning = store.history("demo-oneplus-morning")["points"]
+                self.assertEqual(sum(b["received_ms"] - a["received_ms"] > 600_000
+                                     for a, b in zip(morning, morning[1:])), 1)
+                # Multiple runs of one source must not be fused together.
+                self.assertEqual(next(r for r in runs if r["track_id"] == "demo-oneplus-evening")["channel_id"],
+                                 next(r for r in runs if r["track_id"] == "demo-oneplus-morning")["channel_id"])
+                self.assertEqual(store.history("demo-archive")["truncated"], True)
+                pairs = store.run_proximity("demo-oneplus-evening", "demo-lg-evening", 100, 60)["pairs"]
+                self.assertTrue(pairs)
+                self.assertLess(pairs[0]["receipt_delta_ms"], 60_000)
+                notes = store.annotations([pairs[-1]["a"]["id"], pairs[-1]["b"]["id"]])
+                # The note is attached to the midpoint witness, not every pair.
+                self.assertEqual(len(notes["annotations"]), 0)
+                with closing(sqlite3.connect(path)) as db:
+                    refs = db.execute("SELECT fix_a, fix_b FROM annotations").fetchone()
+                saved = store.annotations(list(refs))["annotations"]
+                self.assertEqual(len(saved), 1)
+                self.assertIn("DEMO HYPOTHESIS", saved[0]["note"])
+                self.assertIn("ALTERNATIVE", saved[0]["note"])
+                overview = store.monitor()["entries"]
+                self.assertEqual(len([m for m in overview if m["channel_id"] == "tour.oneplus"]), 1)
+            finally:
+                store.close()
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                create_tour(path, 1_800_000_000_000)
+
+    def test_disposable_tour_runs_on_loopback_and_deletes_its_history(self):
+        observed = []
+        def fake_server(args):
+            self.assertEqual(args[2:6], ["--bind", "127.0.0.1", "--port", "8877"])
+            self.assertEqual(args[-2], "--db")
+            path = Path(args[-1])
+            self.assertTrue(path.is_file())
+            with closing(sqlite3.connect(path)) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1366)
+            observed.append(path)
+            return 0
+        with patch("demo.subprocess.call", side_effect=fake_server):
+            self.assertEqual(demo_main(["--tour", "--serve"]), 0)
+        self.assertFalse(observed[0].exists(), "temporary history must be deleted on exit")
+
+    def test_tour_serve_is_isolated_from_a_user_supplied_database(self):
+        with self.assertRaises(SystemExit):
+            demo_main(["--serve", "--tour", "--db", "/tmp/existing.sqlite3"])
+
 
 
 if __name__ == "__main__":

@@ -3,6 +3,9 @@ all: vendor
 vendor:
 	python3 vendor_leaflet.py
 
+demo: vendor
+	python3 demo.py --tour --serve
+
 check:
 	python3 -m unittest discover -s tests -v
 	node --test tests/test_viewer.cjs
@@ -18,4 +21,4 @@ check-deploy:
 clean:
 	rm -rf vendor
 
-.PHONY: all vendor check check-viewer check-deploy clean
+.PHONY: all vendor demo check check-viewer check-deploy clean

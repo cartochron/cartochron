@@ -32,7 +32,19 @@ FILES = (
 DEST = Path(__file__).resolve().parent / "vendor" / "leaflet"
 
 
+def installed_and_verified():
+    """Reuse an intact local vendor tree without requiring Internet access."""
+    if not all((DEST / (rel.removeprefix("dist/") if rel.startswith("dist/") else rel)).is_file()
+               for rel in FILES):
+        return False
+    return all(base64.b64encode(hashlib.sha256((DEST / name).read_bytes()).digest()).decode()
+               == expected for name, expected in EXPECTED_SHA256.items())
+
+
 def main():
+    if installed_and_verified():
+        print(f"Leaflet {VERSION} is already installed and verified in {DEST}")
+        return
     print(f"Fetching Leaflet {VERSION} from npm ...", flush=True)
     req = Request(URL, headers={"User-Agent": "GPSMapLab-vendor/1.0"})
     with urlopen(req, timeout=30) as response:
