@@ -47,7 +47,7 @@ operator-configured assertions, not verified device identities.
 - **Shared time** highlights only the latest recorded fix at or before the
   cursor if it is no more than five minutes old. It never interpolates
   positions or treats stale fixes as current.
-- **Investigate place** accepts a click on the map and lists up to 40
+- **What was here?** accepts a click on the map and lists up to 40
   chronologically ordered observations from **loaded** tracks within the
   selected radius. It is not a whole-database search.
 
@@ -69,9 +69,9 @@ In Monitor, compare the OnePlus and LG channels; show the stale Vienna channel
 only when you intend to inspect old reports. In History, open
 `demo-oneplus-morning` to see the gap; use `demo-old-crossing` to test a
 geographic crossing at a different time. Choose `demo-oneplus-evening`, open
-**Compare runs**, choose `demo-lg-evening`, and look for a 100-metre / 5-minute
+**Where did two recordings overlap?**, choose `demo-lg-evening`, and look for a 100-metre / 5-minute
 candidate witness. Inspect the witness timeline and its linked example note.
-Alternatively, open **Investigate place**, click their shared region, and
+Alternatively, open **What was here?**, click their shared region, and
 search stored history explicitly.
 
 See the illustrated [handbook](handbook.md) and in-app `/help` for diagrams
@@ -107,7 +107,7 @@ The viewport fits visible tracks, even when they come from different cities.
 Try `demo-city-loop` plus `demo-crossing`; their routes intersect on the map
 but the fixes were recorded at different times. Their intersection alone
 cannot establish a meeting. Use the **Shared time** slider to see whether
-recent recorded fixes exist for each run, or **Investigate place** to read loaded
+recent recorded fixes exist for each run, or **What was here?** to read loaded
 observations near a manually chosen location in timestamp order.
 
 The browser caps each displayed run at 5,000 observations and reports partial

@@ -120,12 +120,24 @@ joins older runs or another channel's positions.
 
 ### 2. History: what was recorded, and when?
 
-Switch to History and browse recording runs separately. Expand **Tools & filters** for time controls and analysis tools; selecting a tool opens a closable drawer over the map. Filter by stored
-source or channel, page into older runs, then select a time interval.
+Switch to History and browse recording runs separately. Three visible questions
+start an investigation: **What was here?**, **Compare routes**, and
+**Where did two recordings overlap?** Each opens a closable results panel over
+the map rather than pushing the map downward. You can begin without configuring
+advanced settings. Use **Time and filters** only when you need to narrow the
+receipt-time interval. Filter by stored source or channel, page into older runs,
+then select an interval if needed.
 Cartochron uses a **half-open interval** `[from, to)` on the *receipt clock*.
 History requests and rendered pages are bounded; a partial result does not
 mean older observations do not exist. If you change the interval, note its
 local-time display and the receiver's UTC semantics.
+
+On a small screen, the results panel uses the available map area. For a place
+search, choose **Choose a place on the map**, then click the location; the
+search panel returns with your selection. **View map** temporarily reveals the
+map without throwing away results; **Back to results** reopens them. Escape
+closes a panel or cancels map selection, returning keyboard focus to the
+relevant control. These operations do not alter any recorded observation.
 
 ### 3. Points, gaps, and suspect jumps
 
@@ -142,7 +154,7 @@ between them; the missing interval is not a reconstructed route.*
 
 ### 4. Compare tracks: does a spatial crossing matter?
 
-Select a focused run, open **Tracks**, and add up to three comparison runs.
+Select a focused run, choose **Compare routes**, and add up to three comparison runs.
 Use **Entire runs (spatial)** to study where recorded paths overlap, or **Same
 interval** when temporal coverage matters. Read the recording intervals
 before making claims about proximity or repeated passage.
