@@ -1895,6 +1895,37 @@ test('valid time search closes picker and entire recording restores defaults', a
 });
 
 
+test('entire History recording preserves UTC receipt bounds across the repeated local hour', async () => {
+  const previousTZ = process.env.TZ;
+  process.env.TZ = 'Europe/Chisinau';
+  try {
+    const ui = viewer();
+    const first = '2026-10-24T23:50:00.000Z'; // 02:50 before the clock change
+    const last = '2026-10-25T00:20:00.000Z';  // 02:20 after the clock change
+    ui.context.recordings = [{track_id: 'fall-run', first, last}];
+    ui.exec('mode = "history"; selectedTrack = "fall-run"; historyRunList = recordings; historyDefaults()');
+    assert.ok(ui.element('from').value > ui.element('to').value,
+      'local clock labels overlap even though receipt instants are ordered');
+    const queries = [];
+    ui.context.fetch = async url => {
+      queries.push(new URL(url, 'http://localhost').searchParams);
+      return {ok: true, json: async () => ({track_id:'fall-run', points:[], next_cursor:null})};
+    };
+    assert.equal(await ui.exec('loadHistory()'), true);
+    assert.equal(queries[0].get('from'), '2026-10-24T23:49:59.000Z');
+    assert.equal(queries[0].get('to'), '2026-10-25T00:20:01.000Z');
+    assert.equal(ui.element('history-time-error').hidden, true);
+    // Editing one endpoint must not re-interpret the still-default other one.
+    ui.element('to').value = '2026-10-25T04:00:00';
+    assert.equal(await ui.exec('loadHistory()'), true);
+    assert.equal(queries[1].get('from'), '2026-10-24T23:49:59.000Z');
+    assert.equal(queries[1].get('to'), '2026-10-25T02:00:00.000Z');
+  } finally {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  }
+});
+
 test('clicking outside dismisses the time picker without applying an interval', () => {
   const ui = viewer();
   const picker = ui.element('history-actions');

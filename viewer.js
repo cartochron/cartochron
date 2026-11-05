@@ -1182,12 +1182,26 @@ function showInspection() {
   }).addTo(layer);
 }
 
+// datetime-local has no UTC offset. During the autumn clock change, the same
+// wall time can identify two different receipts. Keep the exact UTC bounds
+// while the displayed default remains unchanged; edited fields use local time.
+function defaultHistoryTime(id, epochMs) {
+  const input = $(id);
+  input.dataset.defaultUtc = new Date(epochMs).toISOString();
+  input.value = localInput(epochMs);
+  input.dataset.defaultLocal = input.value;
+}
+function historyTimeUtc(id) {
+  const input = $(id);
+  return input.dataset.defaultUtc && input.value === input.dataset.defaultLocal
+    ? input.dataset.defaultUtc : new Date(input.value).toISOString();
+}
 function historyDefaults() {
   const track = trackInfo();
   if (!track) return;
   $('history-interval-toggle').textContent = 'Time interval';
-  $('from').value = localInput(new Date(Date.parse(track.first) - 1000));
-  $('to').value = localInput(new Date(Date.parse(track.last) + 1000));
+  defaultHistoryTime('from', Date.parse(track.first) - 1000);
+  defaultHistoryTime('to', Date.parse(track.last) + 1000);
   $('history-time-error').hidden = true;
 }
 function setMode(next) {
@@ -1304,8 +1318,13 @@ async function loadHistory(more = false) {
   if (!selectedTrack || mode !== 'history') return;
   if (!more) {
     const from = $('from').value, to = $('to').value;
-    if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) ||
-        Date.parse(from) >= Date.parse(to)) {
+    let interval;
+    try {
+      if (!from || !to) throw new RangeError('missing endpoint');
+      interval = {from: historyTimeUtc('from'), to: historyTimeUtc('to')};
+      if (Date.parse(interval.from) >= Date.parse(interval.to))
+        throw new RangeError('reversed interval');
+    } catch (error) {
       // Invalid input must not discard an already loaded investigation.
       $('history-time-error').textContent = 'Choose a valid interval: From must be earlier than To.';
       $('history-time-error').hidden = false;
@@ -1316,7 +1335,7 @@ async function loadHistory(more = false) {
     }
     $('history-time-error').hidden = true;
     clearView();
-    bounds = {from: new Date(from).toISOString(), to: new Date(to).toISOString()};
+    bounds = interval;
     lastIndex = 0;
   }
   const token = revision;
