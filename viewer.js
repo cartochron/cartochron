@@ -124,7 +124,6 @@ function emptyIntervalState() {
     + 'That does not establish what happened between observations.',
     'Change time interval', () => {
       $('history-actions').open = true;
-      $('history-time-options').open = true;
       const options = $('from');
       // Native details and date inputs are a better recovery path than
       // silently widening a forensic query.
@@ -1188,6 +1187,7 @@ function historyDefaults() {
   if (!track) return;
   $('from').value = localInput(new Date(Date.parse(track.first) - 1000));
   $('to').value = localInput(new Date(Date.parse(track.last) + 1000));
+  $('history-time-error').hidden = true;
 }
 function setMode(next) {
   if (mode === next) return;
@@ -1301,20 +1301,19 @@ let bounds = null;
 async function loadHistory(more = false) {
   if (!selectedTrack || mode !== 'history') return;
   if (!more) {
-    clearView();
     const from = $('from').value, to = $('to').value;
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) ||
         Date.parse(from) >= Date.parse(to)) {
+      // Invalid input must not discard an already loaded investigation.
+      $('history-time-error').textContent = 'Choose a valid interval: From must be earlier than To.';
+      $('history-time-error').hidden = false;
+      $('history-actions').open = true;
       status('Choose a valid interval: From must precede To');
-      workspaceState('error', 'Choose a valid time interval',
-        'The start must be before the end. No observations have been searched.',
-        'Edit interval', () => {
-          $('history-actions').open = true;
-          $('history-time-options').open = true;
-          $('from').focus();
-        });
-      return;
+      $('from').focus();
+      return false;
     }
+    $('history-time-error').hidden = true;
+    clearView();
     bounds = {from: new Date(from).toISOString(), to: new Date(to).toISOString()};
     lastIndex = 0;
   }
@@ -1337,6 +1336,7 @@ async function loadHistory(more = false) {
       ? `First ${points.length} shown; narrow the interval for the rest.`
       : cursor ? `${points.length} shown · more observations available`
         : `${points.length} shown · interval complete`;
+    return true;
   } catch (error) {
     if (token === revision) {
       status('Historical query failed: ' + error.message);
@@ -1345,6 +1345,7 @@ async function loadHistory(more = false) {
         'Try again', () => loadHistory());
     }
   } finally { $('more').disabled = false; }
+  return false;
 }
 
 function updateTimeCursor() {
@@ -1934,13 +1935,36 @@ document.addEventListener('keydown', event => {
   if (pickingPlace) finishPlacePick();
   else if (viewingMap) returnFromMap();
   else if (!$('analysis-drawer').hidden) closeAnalysisDrawer();
+  else if ($('history-actions').open) {
+    $('history-actions').open = false;
+    $('history-interval-toggle').focus();
+  }
+});
+// Like a normal popover: clicking outside dismisses it without changing the query.
+document.addEventListener('pointerdown', event => {
+  const picker = $('history-actions');
+  if (picker.open && !picker.contains(event.target)) picker.open = false;
 });
 for (const [panel, toggle] of ANALYSIS_TOOLS)
   $(toggle).addEventListener('click', () => toggleAnalysisDrawer(panel));
 $('compare-time').addEventListener('change', () => loadOverlays());
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));
-$('apply').addEventListener('click', () => loadHistory());
+$('apply').addEventListener('click', async () => {
+  if (await loadHistory()) {
+    $('history-actions').open = false;
+    $('history-interval-toggle').focus();
+  }
+});
+$('history-full').addEventListener('click', async () => {
+  historyDefaults();
+  if (await loadHistory()) {
+    $('history-actions').open = false;
+    $('history-interval-toggle').focus();
+  }
+});
+for (const id of ['from', 'to'])
+  $(id).addEventListener('input', () => { $('history-time-error').hidden = true; });
 $('more').addEventListener('click', () => {if (cursor && points.length < MAX_DISPLAY) loadHistory(true);});
 $('position').addEventListener('input', showInspection);
 $('time-cursor').addEventListener('input', updateTimeCursor);

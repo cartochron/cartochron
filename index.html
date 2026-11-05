@@ -46,10 +46,17 @@
     .drawer-utilities button {font-size:13px}
 
     .history-actions summary,.place-filters summary {cursor:pointer;color:var(--accent);font-weight:600}
-    .history-actions-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 0}
-    .time-options[open] {padding:5px 9px 8px;background:#1b2d39;border:1px solid var(--border);border-radius:8px}
-    .time-options summary,.view-options summary {cursor:pointer;color:var(--accent);font-weight:600}
-    .time-fields {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+    /* One disclosure: the time picker overlays the map instead of resizing it. */
+    #history-controls {position:relative}
+    .history-actions-body {position:absolute;top:calc(100% + 6px);left:0;z-index:900;
+      width:min(640px,calc(100vw - 30px));padding:13px 15px;
+      background:#1b2d39;border:1px solid #608094;border-radius:10px;
+      box-shadow:0 12px 30px #091822bf;max-height:min(340px,65vh);overflow:auto}
+    .time-fields {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .time-fields button {white-space:normal}
+    #history-time-error {margin:7px 0 0;color:#f1b9b7;font-size:12px}
+    .time-hint {margin:0 0 9px;color:var(--quiet);font-size:12px}
+    .view-options summary {cursor:pointer;color:var(--accent);font-weight:600}
     .view-options {position:relative}
     .view-options .view-options-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
     #monitor-count,#runs-status,#page-status,#compare-status,#status,#detail {color:var(--quiet);font-size:12px;font-variant-numeric:tabular-nums}
@@ -200,13 +207,16 @@
         <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Compare routes</button>
         <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Where did two recordings overlap?</button>
       </div>
-      <details id="history-actions" class="history-actions"><summary>Time and filters</summary>
-        <div class="history-actions-body">
-          <details id="history-time-options" class="time-options"><summary>Receipt-time interval</summary>
-            <div class="time-fields"><label>From <input id="from" type="datetime-local" step="1"></label>
+      <details id="history-actions" class="history-actions"><summary id="history-interval-toggle">Time interval</summary>
+        <div class="history-actions-body" role="group" aria-label="Filter by receipt time">
+          <p class="time-hint">Narrow the selected recording by when Cartochron received observations.</p>
+          <div class="time-fields">
+            <label>From <input id="from" type="datetime-local" step="1"></label>
             <label>To <input id="to" type="datetime-local" step="1"></label>
-            <button id="apply" type="button">Show interval</button></div>
-          </details>
+            <button id="apply" type="button">Show interval</button>
+            <button id="history-full" type="button">Entire recording</button>
+          </div>
+          <p id="history-time-error" role="alert" hidden></p>
         </div>
       </details>
     </div>

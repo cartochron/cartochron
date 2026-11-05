@@ -73,7 +73,7 @@
     <li>Use <strong>Camera</strong>: <strong>Free</strong> leaves the map where you place it; <strong>Follow selected</strong> keeps the selected position within the inner map area; <strong>Follow visible</strong> keeps the visible markers in frame, including sources in different cities. <strong>Fit visible</strong> is a one-time action. Dragging or zooming manually turns following off. <strong>Show inactive positions</strong> reveals older reported positions, without claiming the phones are still present there.</li>
     <li><strong>Recent receipts</strong> means Cartochron received an observation within two minutes, not that the device is connected. <strong>No recent receipts</strong> means the last observation is older; the route becomes muted. A source without channel metadata appears by its enrollment, while unattributed legacy recordings appear only as the <em>newest unattributed run</em> here—other runs remain in History.</li>
     <li>Switch to <strong>History</strong> and use <strong>Browse</strong> to filter by channel or enrolled source, or view all recordings. <strong>Older recordings</strong> loads the next page of runs. The run selector includes a human-readable name, recording period, observation count and exact run ID. Every run remains separate.</li>
-    <li>Adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Dates are entered in your browser's local time zone.</li>
+    <li>Open <strong>Time interval</strong> once to adjust <strong>From</strong> and <strong>To</strong>, then select <strong>Show interval</strong>. Use <strong>Entire recording</strong> to restore the full run. Dates are entered in your browser's local time zone. The picker opens over the map without resizing it.</li>
   </ol>
   <p>Monitor and History share the map but remember their selections separately. Display names can be assigned by the receiver operator with the local <code>channels.py</code> CLI or changed with <code>sources.py rename</code>; doing so does not assign a source to a historical run or prove device identity. History pages through older recordings, but a paginated catalogue is not a frozen database snapshot.</p>
   <p>The status text tells you how many fixes are shown. If you see <strong>Load more</strong>, additional observations are available; if you see <strong>interval complete</strong>, all observations in the requested interval have been loaded for the focused track. The viewer limits each displayed run to 5,000 fixes; narrow the interval when a result is marked partial.</p>
@@ -84,7 +84,7 @@
     <figcaption>Monitor: use stable channel labels, explicitly choose camera behavior, and distinguish recent receipts from stale last positions. A receipt does not prove a live connection.</figcaption>
   </figure>
 
-  <div class="panel"><strong>Working on a small screen?</strong> Each investigation question opens one results panel over the map. Use <strong>View map</strong> to inspect geography and <strong>Back to results</strong> to return without losing your findings. When choosing a place, the map temporarily takes focus; click a location and the search controls return. Press Escape to close a panel or cancel place selection. In History, <strong>Time and filters</strong> is optional; you do not need to configure it to begin.</div>
+  <div class="panel"><strong>Working on a small screen?</strong> Each investigation question opens one results panel over the map. Use <strong>View map</strong> to inspect geography and <strong>Back to results</strong> to return without losing your findings. When choosing a place, the map temporarily takes focus; click a location and the search controls return. Press Escape to close a panel or cancel place selection. In History, <strong>Time interval</strong> is optional; the default covers the selected recording.</div>
 
   <h2 id="points">2. Inspect individual points and missing time</h2>
   <p>In History, hover a small dot to see a fix's timestamp and coordinates. Click a dot or the route line to select a recorded point; the <strong>Inspect point</strong> slider moves with it. You can also move that slider yourself. The highlighted magenta point is your current selection.</p>
@@ -96,7 +96,7 @@
 
   <h2 id="compare">3. Put several recorded runs on the map</h2>
   <ol class="steps">
-    <li>In <strong>History</strong>, select the focused recording. The three investigation questions are visible above the map; <strong>Time and filters</strong> contains the optional receipt-time interval.</li>
+    <li>In <strong>History</strong>, select the focused recording. The three investigation questions are visible above the map; <strong>Time interval</strong> directly opens the optional receipt-time filter.</li>
     <li>Choose <strong>Compare routes</strong> and check up to three additional runs. The focused run stays blue; the others get contrasting outlined colors.</li>
     <li>For <strong>Comparison time</strong>, choose <strong>Entire runs (spatial)</strong> to see each run's loaded history even if they occurred at different times. Choose <strong>Same interval</strong> to limit the other runs to the focused run's From/To window.</li>
     <li>Click a colored dot or line to read the time and coordinates of a comparison fix.</li>

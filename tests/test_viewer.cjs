@@ -1771,7 +1771,6 @@ test('an empty time window offers its controls, without widening evidence silent
   assert.equal(ui.element('workspace-action').hidden, false);
   ui.element('workspace-action').events.click();
   assert.equal(ui.element('history-actions').open, true);
-  assert.equal(ui.element('history-time-options').open, true);
   assert.equal(ui.context.document.activeElement, ui.element('from'));
 });
 
@@ -1826,4 +1825,82 @@ test('stored history without Monitor entries points to History instead of claimi
   assert.equal(ui.element('workspace-action').textContent, 'Open History');
   ui.element('workspace-action').events.click();
   assert.equal(ui.exec('mode'), 'history');
+});
+
+
+test('History time interval is a single disclosure with direct fields and an entire-run action', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const section = html.slice(html.indexOf('<details id="history-actions"'), html.indexOf('</header>'));
+  assert.match(section, /<summary id="history-interval-toggle">Time interval<\/summary>/);
+  assert.match(section, /id="from"/);
+  assert.match(section, /id="to"/);
+  assert.match(section, /id="history-full"/);
+  assert.doesNotMatch(section, /<details[^>]*id="history-time-options"/);
+  assert.match(html, /\.history-actions-body \{position:absolute/,
+    'opening time interval must overlay the map, not resize it');
+});
+
+test('invalid time edit keeps recorded evidence and prompts inside the same control', async () => {
+  const ui = viewer();
+  ui.context.fixture = [point(0), point(1)];
+  ui.exec('mode = "history"; selectedTrack = "run-a"; points = fixture');
+  ui.element('history-actions').open = true;
+  ui.element('from').value = '2026-11-04T13:00';
+  ui.element('to').value = '2026-11-04T10:00';
+  let requests = 0;
+  ui.context.fetch = async () => { requests++; throw new Error('should not send'); };
+  await ui.element('apply').events.click();
+  assert.equal(requests, 0);
+  assert.equal(ui.exec('points.length'), 2);
+  assert.equal(ui.element('history-actions').open, true);
+  assert.equal(ui.element('history-time-error').hidden, false);
+  assert.match(ui.element('history-time-error').textContent, /From must be earlier than To/);
+  ui.element('from').events.input();
+  assert.equal(ui.element('history-time-error').hidden, true);
+  ui.element('analysis-drawer').hidden = true; // Mirrors the real HTML default.
+  ui.context.document.events.keydown({key: 'Escape'});
+  assert.equal(ui.element('history-actions').open, false);
+  assert.equal(ui.context.document.activeElement, ui.element('history-interval-toggle'));
+});
+
+test('valid time search closes picker and entire recording restores defaults', async () => {
+  const ui = viewer();
+  const first = point(0).time, last = point(2).time;
+  ui.exec('mode = "history"; selectedTrack = "run-a"');
+  ui.context.fixtureTrack = {track_id: 'run-a', first, last};
+  ui.exec('catalogue = [fixtureTrack]');
+  ui.element('from').value = '2026-11-02T12:01';
+  ui.element('to').value = '2026-11-02T12:02';
+  const queries = [];
+  ui.context.fetch = async url => {
+    queries.push(url);
+    return {ok: true, json: async () => ({track_id: 'run-a', points:[point(1)], next_cursor: null})};
+  };
+  ui.element('history-actions').open = true;
+  await ui.element('apply').events.click();
+  assert.equal(ui.element('history-actions').open, false);
+  assert.equal(ui.context.document.activeElement, ui.element('history-interval-toggle'));
+  assert.equal(queries.length, 1);
+  assert.ok(queries[0].includes('from=') && queries[0].includes('to='));
+  ui.element('history-actions').open = true;
+  await ui.element('history-full').events.click();
+  assert.equal(queries.length, 2);
+  assert.equal(ui.element('history-actions').open, false);
+  assert.equal(ui.context.document.activeElement, ui.element('history-interval-toggle'));
+  assert.equal(ui.element('from').value, ui.exec('localInput(new Date(Date.parse(fixtureTrack.first) - 1000))'));
+  assert.equal(ui.element('to').value, ui.exec('localInput(new Date(Date.parse(fixtureTrack.last) + 1000))'));
+  assert.equal(ui.element('history-time-error').hidden, true);
+});
+
+
+test('clicking outside dismisses the time picker without applying an interval', () => {
+  const ui = viewer();
+  const picker = ui.element('history-actions');
+  const inside = ui.element('from');
+  picker.contains = target => target === picker || target === inside;
+  picker.open = true;
+  ui.context.document.events.pointerdown({target:inside});
+  assert.equal(picker.open, true);
+  ui.context.document.events.pointerdown({target:ui.element('map')});
+  assert.equal(picker.open, false);
 });

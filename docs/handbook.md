@@ -124,8 +124,8 @@ Switch to History and browse recording runs separately. Three visible questions
 start an investigation: **What was here?**, **Compare routes**, and
 **Where did two recordings overlap?** Each opens a closable results panel over
 the map rather than pushing the map downward. You can begin without configuring
-advanced settings. Use **Time and filters** only when you need to narrow the
-receipt-time interval. Filter by stored source or channel, page into older runs,
+advanced settings. Open **Time interval** once when you need to narrow the
+receipt-time range; **Entire recording** restores the default range. Filter by stored source or channel, page into older runs,
 then select an interval if needed.
 Cartochron uses a **half-open interval** `[from, to)` on the *receipt clock*.
 History requests and rendered pages are bounded; a partial result does not

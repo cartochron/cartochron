@@ -29,7 +29,7 @@ operator-configured assertions, not verified device identities.
   **No recent receipts** dims the route; stored fixes remain available. The
   selector displays receipt states, not ever-increasing counters.
 - **History** retains separate recording run IDs, independent of Monitor selection. It lists the 100 newest runs; the API can query older known IDs. History lets you set **From** and **To** using the browser's *local*
-  clock. Press **Show interval** to query `[from, to)`; the server converts the
+  clock. Press **Show interval** to query `[from, to)`; use **Entire recording** to reset the range; the server converts the
   timestamps to UTC. Use **Inspect point** to examine the position and receipt
   time of each displayed observation.
 - The browser loads 1,000 historical points at a time. **Load more** fetches
