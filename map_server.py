@@ -494,10 +494,17 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(201, point)
 
     def log_message(self, fmt, *args):
-        # Do not log coordinates or request bodies.
-        if urlsplit(self.path).path in ("/api/position", "/api/points", "/api/points/recent", "/api/tracks", "/api/sources"):
+        # Never log an untrusted request target: queries can contain recorded
+        # coordinates, source IDs or evidence IDs, even on unknown endpoints.
+        # Only canonical static asset requests are useful in access logs.
+        safe_paths = {"/", "/help", "/viewer.js"} | _HELP_IMAGES | set(_LEAFLET_FILES)
+        if getattr(self, "path", None) not in safe_paths:
             return
-        super().log_message(fmt, *args)
+        # BaseHTTPRequestHandler's standard access-log format includes the
+        # original request line. Rebuild it from the known-safe path instead.
+        if fmt == '"%s" %s %s' and len(args) == 3:
+            super().log_message('"%s %s" %s %s', self.command, self.path,
+                                args[1], args[2])
 
 
 def load_authorization(filename):
