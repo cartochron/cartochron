@@ -58,7 +58,7 @@
   <h2 id="start">Start here: what am I looking at?</h2>
   <p>A <strong>fix</strong> is one recorded location observation (latitude, longitude, and time). A <strong>track</strong> groups fixes from one recording run. Each track has an ID. Different IDs do not necessarily mean different people or devices.</p>
   <p>A <strong>source</strong> is an operator-enrolled observation producer; a <strong>channel</strong> is an operator-configured acquisition input (for example, one GPSD UDP port). Neither name proves which physical device sent a report. A <strong>run</strong> is one recording session, with a separate ID. Historical runs are never joined merely because they share a channel or source.</p>
-  <p>The map joins nearby-in-time fixes into visible route segments, except across unusually large apparent receipt-time jumps (reviewed as uncertain, not automatically rejected). A line is a convenient way to read a sequence; it <strong>does not show every step taken</strong> between the recorded positions.</p>
+  <p>The map joins nearby-in-time fixes into visible route segments, except across unusually large apparent receipt-time jumps (reviewed as uncertain, not automatically rejected). Dashed lines link reported coordinates, not verified travel between fixes. They show an observation sequence, not each step taken.</p>
   <ul class="legend" aria-label="Map symbol legend">
     <li><span class="key main"></span>Focused track</li>
     <li><span class="key compare"></span>Comparison track</li>

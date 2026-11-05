@@ -164,6 +164,7 @@ test('live receipt status distinguishes recent data from stale history without c
   ui.render([current], 'live');
   assert.match(ui.element('feed-state').textContent, /Recent receipts/);
   assert.match(ui.element('status').textContent, /connection not verified/);
+  assert.match(ui.element('status').textContent, /fix acquisition time unknown/);
   assert.equal(ui.group.layers.find(l => l.type === 'circle').options.fillColor, '#39b86f');
   ui.render([old], 'live');
   assert.match(ui.element('feed-state').textContent, /No recent receipts/);
@@ -217,6 +218,21 @@ test('dots show safe labels and select a historical point without moving the sli
   dots[2].events.click();
   assert.equal(ui.element('position').value, '2');
   assert.match(ui.element('detail').textContent, /3\/3/);
+});
+
+test('reported-coordinate links are dashed, explained, and absent for a single fix', () => {
+  const ui = viewer();
+  const lines = ui.render([point(0, 0), point(1, 1)])
+    .filter(item => item.type === 'polyline');
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].options.dashArray, '6 8');
+  assert.equal(ui.element('route-note').hidden, false);
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /id="route-note"[^>]*>Dashed lines connect reported coordinates, not verified travel/);
+  ui.render([point(0)]);
+  assert.equal(ui.element('route-note').hidden, true);
+  ui.render([]);
+  assert.equal(ui.element('route-note').hidden, true);
 });
 
 test('gap boundaries are visible and route lines never cross a recording gap', () => {
@@ -370,6 +386,9 @@ test('multi-track overlays are independent, colored and clickable', async () => 
   const b = ui.exec('overlayLayers.get("run-B")').layers, c = ui.exec('overlayLayers.get("run-C")').layers;
   assert.equal(b.filter(x => x.type === 'polyline')[1].options.color, '#8724d5');
   assert.equal(c.filter(x => x.type === 'polyline')[1].options.color, '#007c78');
+  assert.equal(b.filter(x => x.type === 'polyline')[0].options.dashArray, '6 8');
+  assert.equal(b.filter(x => x.type === 'polyline')[1].options.dashArray, '6 8');
+  assert.equal(ui.element('route-note').hidden, false);
   b.find(x => x.type === 'circle').events.click();
   assert.match(ui.popup.content.textContent, /run-B/);
   assert.equal(ui.element('position').value, '0');

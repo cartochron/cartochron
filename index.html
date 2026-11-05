@@ -33,6 +33,10 @@
       display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#142630f5;
       border:1px solid #78bee9;box-shadow:0 6px 20px #07131da6;border-radius:9px;padding:9px 12px}
     .map-hint strong {font-size:13px}
+    /* Annotation, not another control: keep it clear of Leaflet's zoom buttons. */
+    .route-note {position:absolute;z-index:600;top:10px;left:55px;pointer-events:none;
+      max-width:calc(100% - 65px);margin:0;padding:5px 9px;border-radius:6px;
+      background:#142630e8;color:#d5e8f1;font-size:11px;line-height:1.35}
     /* A question and a recovery action, not a blank map or a toast that vanishes. */
     .workspace-state {position:absolute;z-index:600;left:50%;top:50%;transform:translate(-50%,-50%);
       width:min(430px,calc(100% - 30px));padding:22px;background:#152934f2;
@@ -256,6 +260,7 @@
   </header>
   <div class="map-stage">
     <main id="map" aria-label="GPS observation map"></main>
+    <p id="route-note" class="route-note" hidden>Dashed lines connect reported coordinates, not verified travel.</p>
     <section id="workspace-state" class="workspace-state" data-kind="loading" aria-labelledby="workspace-title" hidden>
       <h2 id="workspace-title">Loading observations…</h2>
       <p id="workspace-description">Checking for recorded observations.</p>

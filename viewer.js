@@ -909,7 +909,8 @@ function showLiveStatus() {
     receipt.kind === 'stale' ? `Last received ${receipt.label}; position is not current` :
     'Receipt time uncertain; position is not confirmed current';
   status(`Monitor · ${points.length} stored observations · ${summary} · ${localTime(latest.time)}`
-    + (positioningJumps.length ? ` · ${positioningJumps.length} possible positioning jump${positioningJumps.length === 1 ? '' : 's'}` : ''));
+    + (positioningJumps.length ? ` · ${positioningJumps.length} possible positioning jump${positioningJumps.length === 1 ? '' : 's'}` : '')
+    + (latest.measured_time ? '' : ' · fix acquisition time unknown'));
 }
 
 function clearView() {
@@ -920,6 +921,7 @@ function clearView() {
   cursor = null;
   lastSignature = '';
   layer.clearLayers();
+  $('route-note').hidden = true;
   overlayGeneration++;
   for (const layer of overlayLayers.values()) {layer.clearLayers(); map.removeLayer(layer);}
   overlayLayers.clear();
@@ -1059,6 +1061,7 @@ function render(fit = false) {
   if (signature === lastSignature && !fit) { showLiveStatus(); return; }
   lastSignature = signature;
   layer.clearLayers();
+  $('route-note').hidden = true;
   inspectedMarker = null;
   if (!points.length) {
     $('inspect').hidden = true;
@@ -1075,6 +1078,7 @@ function render(fit = false) {
   }
   hideWorkspaceState();
   const {segments: routeSegments, ends, gaps, jumps} = routeParts(points);
+  $('route-note').hidden = routeSegments.length === 0;
   recordingGaps = gaps;
   positioningJumps = jumps;
   const warnings = [];
@@ -1086,7 +1090,7 @@ function render(fit = false) {
   const stale = mode === 'live' && freshness?.kind !== 'recent';
   for (const segment of routeSegments) {
     L.polyline(segment.map(index => [points[index].lat, points[index].lon]), {
-      color: stale ? '#748391' : '#57b9ef', weight: 3
+      color: stale ? '#748391' : '#57b9ef', weight: 3, dashArray: '6 8'
     }).on('click', event => inspectPoint(nearestIndex(event, segment, points))).addTo(layer);
   }
 
@@ -1756,6 +1760,7 @@ function renderOverlay(observations, track, color) {
   overlayLayers.set(track, group);
   if (!observations.length) return;
   const {segments, ends} = routeParts(observations);
+  if (segments.length) $('route-note').hidden = false;
   const show = index => {
     const p = observations[index];
     L.popup().setLatLng([p.lat, p.lon])
@@ -1764,10 +1769,10 @@ function renderOverlay(observations, track, color) {
   for (const segment of segments) {
     const coordinates = segment.map(index => [observations[index].lat, observations[index].lon]);
     L.polyline(coordinates, {
-      color: OVERLAY_OUTLINE, weight: 7, opacity: 0.9, interactive: false
+      color: OVERLAY_OUTLINE, weight: 7, opacity: 0.9, interactive: false, dashArray: '6 8'
     }).addTo(group);
     L.polyline(coordinates, {
-      color, weight: 4, opacity: 1
+      color, weight: 4, opacity: 1, dashArray: '6 8'
     }).on('click', event => show(nearestIndex(event, segment, observations))).addTo(group);
   }
   const stride = Math.max(1, Math.ceil(observations.length / MAX_NODES));
@@ -1786,6 +1791,7 @@ async function loadOverlays() {
   const generation = ++overlayGeneration;
   const token = revision;
   clearOverlayLayers();
+  $('route-note').hidden = routeParts(points).segments.length === 0;
   $('compare-status').textContent = '';
   if (mode !== 'history' || !bounds || !visibleOverlays.size) {updateTimeCursor(); return;}
   const tracks = [...visibleOverlays].filter(t => t !== selectedTrack);

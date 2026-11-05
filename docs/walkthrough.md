@@ -38,7 +38,8 @@ operator-configured assertions, not verified device identities.
   results; it does not silently simplify a route or claim completeness.
 - A gap greater than **10 minutes between consecutive receipt times** breaks
   the line into separate route segments. Pale endpoint rings explain the gap
-  duration when inspected. Movement between fixes is unknown. Green marks
+  duration when inspected. Dashed connectors join reported coordinates, not
+  observed travel. Movement between fixes is unknown. Green marks
   the first displayed fix, orange the last, and purple the inspected fix.
 - **Compare routes** shows up to four runs at once: the focused blue run plus up to
   three color-coded comparison layers. **Entire runs (spatial)** compares the
