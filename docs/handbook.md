@@ -268,9 +268,14 @@ control in History asks a different, narrower question: *do these two
 particular recorded runs contain any close reported fixes with nearby receipt
 times, anywhere on the map?*
 
-Select the first run in History, open **Across places**, choose a second run
-from the suggested runs (or type its exact run ID if older or filtered out),
-and set a geographic separation (50–1000 m in
+Select the first run in History, open **Across places**, then use
+**Compare it with** to select the second recording by its descriptive
+channel/source name and receipt time. The comparison is not started with
+a guessed second run. If the desired run is older or absent from the bounded
+catalogue, expand **Older recording not listed?** and type its exact run ID.
+Choosing a named run clears the advanced ID field, and choosing an exact ID
+clears the named selection; changing the catalogue does not silently change
+your comparison. Set a geographic separation (50–1000 m in
 the interface) and a receipt-time window (1, 5 or 15 minutes). Click
 **Find observation pairs**. Optionally tick **Use History From/To** to limit
 which observations from the first run become anchors. This search reads the
