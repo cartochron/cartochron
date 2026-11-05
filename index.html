@@ -75,7 +75,8 @@
     #feed-state {font-size:12px;padding:4px 9px;border:1px solid #627783;border-radius:20px;white-space:nowrap}
     #feed-state[data-state=recent] {color:#99e4c1;border-color:#388568}
     #feed-state[data-state=stale],#feed-state[data-state=unknown] {color:#f0c89a;border-color:#a37f58}
-    .map-stage {position:relative;flex:1;min-height:280px;overflow:hidden;background:#1b2e3a}
+    /* Contain Leaflet control z-indexes (up to 1000) below header popovers. */
+    .map-stage {position:relative;isolation:isolate;flex:1;min-height:280px;overflow:hidden;background:#1b2e3a}
     #map {position:absolute;inset:0;background:#1b2e3a}
     .analysis-drawer {position:absolute;top:12px;right:12px;bottom:12px;z-index:700;
       width:min(450px,calc(100% - 24px));overflow-y:auto;overscroll-behavior:contain;

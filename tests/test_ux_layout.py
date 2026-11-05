@@ -41,6 +41,15 @@ class LayoutTest(unittest.TestCase):
         self.assertIn('position:absolute', html)
         self.assertIn('overscroll-behavior:contain', html)
 
+    def test_map_controls_cannot_cover_header_popovers(self):
+        """Keep Leaflet's z-index:1000 controls inside the map stacking context.
+
+        Without isolation, a zoom button can cover the History time picker
+        even though that picker belongs to the higher-level header.
+        """
+        html = (Path(__file__).resolve().parent.parent / 'index.html').read_text()
+        self.assertRegex(html, r'\.map-stage\s*\{[^}]*\bisolation:isolate;')
+
 
 if __name__ == '__main__':
     unittest.main()
