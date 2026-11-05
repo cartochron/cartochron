@@ -56,9 +56,15 @@
     .time-fields button {white-space:normal}
     #history-time-error {margin:7px 0 0;color:#f1b9b7;font-size:12px}
     .time-hint {margin:0 0 9px;color:var(--quiet);font-size:12px}
+    /* Both Monitor and History options open over the map, not into its height. */
     .view-options summary {cursor:pointer;color:var(--accent);font-weight:600}
     .view-options {position:relative}
-    .view-options .view-options-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .view-options .view-options-body {position:absolute;top:calc(100% + 7px);left:0;z-index:900;
+      width:min(390px,calc(100vw - 24px));display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+      padding:13px 15px;background:#1b2d39;border:1px solid #608094;
+      border-radius:10px;box-shadow:0 12px 30px #091822bf}
+    .history-tools-toggle {display:none}
+    .history-tools-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
     #monitor-count,#runs-status,#page-status,#compare-status,#status,#detail {color:var(--quiet);font-size:12px;font-variant-numeric:tabular-nums}
     #status {max-width:48ch;white-space:normal;overflow-wrap:anywhere}
     .controls {gap:8px}
@@ -147,13 +153,35 @@
       overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     [hidden] {display:none!important}
     @media(max-width:720px) {
-      header {padding:9px 10px}
+      header {padding:8px 10px}
+      .brand {gap:8px;width:100%}
+      /* Keep status accessible without spending a full row of map height. */
+      .brand #status {position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+        overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+      .brand h1 {font-size:16px}
+      .brand .help-link {margin-left:auto}
+      #history-controls {position:relative;display:flex;gap:12px;align-items:center;flex-wrap:nowrap;
+        margin-top:6px;padding-top:6px}
+      .history-tools-toggle {display:inline-block}
+      .history-tools-body {display:none;position:absolute;top:calc(100% + 7px);left:0;
+        z-index:900;width:min(450px,calc(100vw - 20px));max-height:min(62dvh,440px);
+        overflow-y:auto;padding:12px;background:#1b2d39;border:1px solid #608094;
+        border-radius:10px;box-shadow:0 12px 30px #091822bf}
+      .history-tools-body[data-open=true] {display:flex}
+      .history-supplement {width:100%}
+      #monitor-controls {margin-top:4px}
+      .view-options .view-options-body {max-height:60dvh;overflow-y:auto}
+      .history-actions-body {width:min(450px,calc(100vw - 20px));max-height:65dvh}
+      .time-fields {gap:8px}
+      #inspect {padding:5px 10px}
+      #inspect #detail {font-size:11px;max-height:34px;overflow-y:auto;min-width:0}
+      #time-panel {padding:5px 10px}
       .top > .controls {display:grid;grid-template-columns:minmax(0,1fr) auto;width:100%;gap:7px}
       .top > .controls label {min-width:0}
       #selection-label {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
       #track {min-width:0;width:100%;max-width:none}
       .mode-switch button {padding:7px 9px}
-      .map-stage {min-height:0}
+      .map-stage {min-height:160px}
       .motto {display:none}
       .analysis-drawer {top:8px;left:8px;right:8px;bottom:8px;width:auto;max-height:none;border-radius:12px}
       .history-questions {width:100%;flex-wrap:wrap;padding:2px 0 4px}
@@ -183,7 +211,7 @@
       </div>
     </div>
     <div id="monitor-controls" class="controls">
-      <details class="view-options"><summary>View options</summary><div class="view-options-body"><label>Camera <select id="camera" aria-label="Monitor camera mode">
+      <details class="view-options" id="monitor-view-options"><summary id="monitor-view-toggle">View options</summary><div class="view-options-body"><label>Camera <select id="camera" aria-label="Monitor camera mode">
         <option value="free" selected>Free (no auto-move)</option>
         <option value="selected">Follow selected</option>
         <option value="visible">Follow visible</option>
@@ -193,6 +221,9 @@
       <span id="monitor-count" aria-live="polite"></span></div></details>
     </div>
     <div id="history-controls" hidden>
+      <button type="button" class="history-tools-toggle" id="history-tools-toggle"
+        aria-expanded="false" aria-controls="history-tools-body">Explore recordings</button>
+      <div id="history-tools-body" class="history-tools-body" data-open="false">
       <div class="history-supplement">
         <label>Recordings <select id="history-filter" aria-label="Filter recording runs">
           <option value="">All recordings</option>
@@ -207,6 +238,7 @@
         <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">What was here?</button>
         <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Compare routes</button>
         <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Where did two recordings overlap?</button>
+      </div>
       </div>
       <details id="history-actions" class="history-actions"><summary id="history-interval-toggle">Time interval</summary>
         <div class="history-actions-body" role="group" aria-label="Filter by receipt time">

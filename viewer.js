@@ -1185,12 +1185,14 @@ function showInspection() {
 function historyDefaults() {
   const track = trackInfo();
   if (!track) return;
+  $('history-interval-toggle').textContent = 'Time interval';
   $('from').value = localInput(new Date(Date.parse(track.first) - 1000));
   $('to').value = localInput(new Date(Date.parse(track.last) + 1000));
   $('history-time-error').hidden = true;
 }
 function setMode(next) {
   if (mode === next) return;
+  closeOptionPanels();
   closeAnalysisDrawer({restoreFocus: false});
   mode = next;
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
@@ -1351,10 +1353,15 @@ async function loadHistory(more = false) {
 function updateTimeCursor() {
   timeLayer.clearLayers();
   const panel = $('time-panel');
-  if (mode !== 'history' || !points.length) {panel.hidden = true; return;}
+  // Shared time compares recordings. A single run already has Inspect point.
+  const otherRuns = [...visibleOverlays].filter(track => overlayPoints.has(track));
+  if (mode !== 'history' || !points.length || !otherRuns.length) {
+    panel.hidden = true;
+    return;
+  }
   panel.hidden = false;
   const runs = [{name: selectedTrack, fixes: points, color: '#57b9ef'}];
-  for (const [i, track] of [...visibleOverlays].entries()) {
+  for (const [i, track] of otherRuns.entries()) {
     if (overlayPoints.has(track)) {
       runs.push({name: track, fixes: overlayPoints.get(track), color: OVERLAY_COLORS[i]});
     }
@@ -1819,6 +1826,7 @@ $('history-filter').addEventListener('change', () => {
   historyTrack = '';
   selectedTrack = '';
   visibleOverlays.clear();
+  closeHistoryTools();
   clearView();
   loadRunPage(true);
 });
@@ -1927,6 +1935,35 @@ function revealEvidenceOnMap(origin, returnLabel) {
 $('place-pick').addEventListener('click', startPlacePick);
 $('place-pick-cancel').addEventListener('click', () => finishPlacePick());
 $('drawer-map').addEventListener('click', () => showMapInsteadOfDrawer());
+// The two everyday option panels obey the same lifecycle and focus rules.
+function closeHistoryTools(restoreFocus = false) {
+  const body = $('history-tools-body');
+  const wasOpen = body.dataset.open === 'true';
+  body.dataset.open = 'false';
+  $('history-tools-toggle').setAttribute('aria-expanded', 'false');
+  if (wasOpen && restoreFocus) $('history-tools-toggle').focus();
+}
+function closeOptionPanels() {
+  closeHistoryTools();
+  $('history-actions').open = false;
+  const monitor = $('monitor-view-options');
+  if (monitor) monitor.open = false;
+}
+$('history-tools-toggle').addEventListener('click', () => {
+  const next = $('history-tools-body').dataset.open !== 'true';
+  closeOptionPanels();
+  $('history-tools-body').dataset.open = String(next);
+  $('history-tools-toggle').setAttribute('aria-expanded', String(next));
+});
+$('history-actions').addEventListener('toggle', () => {
+  if ($('history-actions').open) closeHistoryTools();
+});
+$('monitor-view-options').addEventListener('toggle', () => {
+  if ($('monitor-view-options').open) {
+    closeHistoryTools();
+    $('history-actions').open = false;
+  }
+});
 $('witness-back').addEventListener('click', backToWitnessPair);
 $('return-results').addEventListener('click', returnFromMap);
 $('drawer-close').addEventListener('click', () => closeAnalysisDrawer());
@@ -1938,20 +1975,32 @@ document.addEventListener('keydown', event => {
   else if ($('history-actions').open) {
     $('history-actions').open = false;
     $('history-interval-toggle').focus();
-  }
+  } else if ($('monitor-view-options').open) {
+    $('monitor-view-options').open = false;
+    $('monitor-view-toggle').focus();
+  } else if ($('history-tools-body').dataset.open === 'true') closeHistoryTools(true);
 });
 // Like a normal popover: clicking outside dismisses it without changing the query.
 document.addEventListener('pointerdown', event => {
   const picker = $('history-actions');
   if (picker.open && !picker.contains(event.target)) picker.open = false;
+  const monitor = $('monitor-view-options');
+  if (monitor.open && !monitor.contains(event.target)) monitor.open = false;
+  const tools = $('history-tools-body');
+  if (tools.dataset.open === 'true' && !tools.contains(event.target)
+      && event.target !== $('history-tools-toggle')) closeHistoryTools();
 });
 for (const [panel, toggle] of ANALYSIS_TOOLS)
-  $(toggle).addEventListener('click', () => toggleAnalysisDrawer(panel));
+  $(toggle).addEventListener('click', () => {
+    closeHistoryTools();
+    toggleAnalysisDrawer(panel);
+  });
 $('compare-time').addEventListener('change', () => loadOverlays());
 $('live').addEventListener('click', () => setMode('live'));
 $('history').addEventListener('click', () => setMode('history'));
 $('apply').addEventListener('click', async () => {
   if (await loadHistory()) {
+    $('history-interval-toggle').textContent = 'Time interval · filtered';
     $('history-actions').open = false;
     $('history-interval-toggle').focus();
   }
@@ -1959,6 +2008,7 @@ $('apply').addEventListener('click', async () => {
 $('history-full').addEventListener('click', async () => {
   historyDefaults();
   if (await loadHistory()) {
+    $('history-interval-toggle').textContent = 'Time interval';
     $('history-actions').open = false;
     $('history-interval-toggle').focus();
   }

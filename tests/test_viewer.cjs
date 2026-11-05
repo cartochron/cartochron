@@ -1880,6 +1880,7 @@ test('valid time search closes picker and entire recording restores defaults', a
   await ui.element('apply').events.click();
   assert.equal(ui.element('history-actions').open, false);
   assert.equal(ui.context.document.activeElement, ui.element('history-interval-toggle'));
+  assert.match(ui.element('history-interval-toggle').textContent, /filtered/);
   assert.equal(queries.length, 1);
   assert.ok(queries[0].includes('from=') && queries[0].includes('to='));
   ui.element('history-actions').open = true;
@@ -1890,6 +1891,7 @@ test('valid time search closes picker and entire recording restores defaults', a
   assert.equal(ui.element('from').value, ui.exec('localInput(new Date(Date.parse(fixtureTrack.first) - 1000))'));
   assert.equal(ui.element('to').value, ui.exec('localInput(new Date(Date.parse(fixtureTrack.last) + 1000))'));
   assert.equal(ui.element('history-time-error').hidden, true);
+  assert.equal(ui.element('history-interval-toggle').textContent, 'Time interval');
 });
 
 
@@ -1903,4 +1905,74 @@ test('clicking outside dismisses the time picker without applying an interval', 
   assert.equal(picker.open, true);
   ui.context.document.events.pointerdown({target:ui.element('map')});
   assert.equal(picker.open, false);
+});
+
+test('mobile History actions open from one menu and close with Escape without affecting the interval', () => {
+  const ui = viewer();
+  ui.element('analysis-drawer').hidden = true; // Matches the actual initial DOM.
+  const menu = ui.element('history-tools-body');
+  const button = ui.element('history-tools-toggle');
+  button.events.click();
+  assert.equal(menu.dataset.open, 'true');
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  ui.context.document.events.keydown({key: 'Escape'});
+  assert.equal(menu.dataset.open, 'false');
+  assert.equal(ui.context.document.activeElement, button);
+  button.events.click();
+  ui.element('history-actions').open = true;
+  ui.element('history-actions').events.toggle();
+  assert.equal(menu.dataset.open, 'false');
+  assert.equal(ui.element('history-actions').open, true);
+});
+
+test('Monitor options match History interval Escape and outside-click behavior', () => {
+  const ui = viewer();
+  ui.element('analysis-drawer').hidden = true; // Matches the actual initial DOM.
+  const options = ui.element('monitor-view-options');
+  options.open = true;
+  ui.context.document.events.keydown({key: 'Escape'});
+  assert.equal(options.open, false);
+  assert.equal(ui.context.document.activeElement, ui.element('monitor-view-toggle'));
+  options.contains = target => target === options || target === ui.element('camera');
+  options.open = true;
+  ui.context.document.events.pointerdown({target:ui.element('camera')});
+  assert.equal(options.open, true);
+  ui.context.document.events.pointerdown({target:ui.element('map')});
+  assert.equal(options.open, false);
+});
+
+test('mode changes dismiss previously open option panels', () => {
+  const ui = viewer();
+  const options = ui.element('monitor-view-options');
+  options.open = true;
+  ui.element('history-actions').open = true;
+  ui.element('history-tools-body').dataset.open = 'true';
+  ui.exec('setMode("history")');
+  assert.equal(options.open, false);
+  assert.equal(ui.element('history-actions').open, false);
+  assert.equal(ui.element('history-tools-body').dataset.open, 'false');
+});
+
+test('Shared time appears only after a second recorded run is loaded', () => {
+  const ui = viewer();
+  ui.render([point(0, 0), point(1, 5)], 'history', 'run-A');
+  assert.equal(ui.element('time-panel').hidden, true);
+  ui.context.fixtures = [point(0, 0), point(1, 3)];
+  ui.exec('visibleOverlays.add("run-B")');
+  ui.exec('updateTimeCursor()');
+  assert.equal(ui.element('time-panel').hidden, true, 'a selected but unready overlay is not a comparison');
+  ui.exec('overlayPoints.set("run-B", fixtures); updateTimeCursor()');
+  assert.equal(ui.element('time-panel').hidden, false);
+  ui.exec('visibleOverlays.clear(); updateTimeCursor()');
+  assert.equal(ui.element('time-panel').hidden, true);
+});
+
+test('desktop and mobile option panels share the non-resizing popover contract', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /\.view-options \.view-options-body \{position:absolute/);
+  assert.match(html, /\.history-actions-body \{position:absolute/);
+  assert.match(html, /\.history-tools-body\[data-open=true\] \{display:flex\}/);
+  assert.match(html, /id="history-tools-toggle"/);
+  assert.match(html, /id="monitor-view-options"/);
+  assert.match(html, /\.map-stage \{min-height:160px\}/);
 });
