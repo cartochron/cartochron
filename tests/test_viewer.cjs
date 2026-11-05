@@ -11,6 +11,24 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'viewer.js'), 'utf8');
 
+// The fake DOM below creates missing elements on demand. A real browser returns
+// null, so compare the viewer's literal element lookups to the served HTML.
+test('all literal viewer element IDs exist in index.html', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
+  const lookedUp = new Set([...source.matchAll(/\$\('([A-Za-z][A-Za-z0-9-]*)'\)/g)]
+    .map(match => match[1]));
+  const missing = [...lookedUp].filter(id => !ids.has(id)).sort();
+  assert.deepEqual(missing, [], 'viewer.js references IDs missing from index.html');
+
+  // investigationResult() composes its IDs, so cover those intentional cases too.
+  for (const prefix of ['place-db', 'proximity']) {
+    for (const suffix of ['status', 'coverage', 'next-step', 'summary']) {
+      assert.ok(ids.has(`${prefix}-${suffix}`), `missing ${prefix}-${suffix}`);
+    }
+  }
+});
+
 function viewer() {
   const elements = new Map();
   const document = {activeElement: null, events: {},
