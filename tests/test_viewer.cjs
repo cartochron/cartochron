@@ -13,11 +13,15 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'viewer.js'), 'utf8');
 
 function viewer() {
   const elements = new Map();
+  const document = {activeElement: null, events: {},
+    addEventListener(name, fn) {this.events[name] = fn;}};
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', max: '', hidden: false, textContent: '', disabled: false, children: [],
-      events: {}, addEventListener(name, fn) { this.events[name] = fn; },
-      setAttribute() {},
+      events: {}, attributes: {}, addEventListener(name, fn) { this.events[name] = fn; },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      getAttribute(name) { return this.attributes[name] ?? null; },
+      focus() { document.activeElement = this; },
       appendChild(child) { this.children.push(child); return child; },
       add(option) { this.children.push(option); },
       replaceChildren(...children) { this.children = [...children]; },
@@ -40,11 +44,12 @@ function viewer() {
     openOn() { return this; },
   };
   const fitted = [];
+  const fitOptions = [];
   const pans = [];
   const viewport = {contains: () => false, pad() {return this;}};
   const map = {
     setView() { return this; },
-    fitBounds(bounds) { fitted.push(bounds.coords); },
+    fitBounds(bounds, options = {}) { fitted.push(bounds.coords); fitOptions.push(options); },
     getBounds() { return viewport; }, getZoom() { return 14; },
     on(name, fn) {this.events = this.events || {}; this.events[name] = fn; return this;},
     panTo(value) { pans.push(value); }, closePopup() {}, invalidateSize() {}, removeLayer() {},
@@ -60,11 +65,14 @@ function viewer() {
       addTo(layer) { layer.layers.push(this); return this; },
       on(name, fn) { this.events[name] = fn; return this; },
       bindTooltip(tooltip) { this.tooltip = tooltip; return this; },
+      setTooltipContent(tooltip) { this.tooltip = tooltip; return this; },
+      setStyle(options) { this.options = {...this.options, ...options}; return this; },
+      setRadius(radius) { this.options.radius = radius; return this; },
     };
   }
   const context = vm.createContext({
     document: {
-      events: {}, addEventListener(name, fn) { this.events[name] = fn; },
+      ...document, get activeElement() {return document.activeElement;},
       getElementById: element,
       createElement() { return {textContent: '', events: {}, children: [],
         appendChild(child) { this.children.push(child); },
@@ -97,7 +105,7 @@ function viewer() {
     exec('points = fixture; mode = fixtureMode; selectedTrack = fixtureTrack; lastSignature = ""; lastIndex = 0; render(true)');
     return groups[0].layers;
   }
-  return {render, exec, element, group: groups[0], groups, map, popup, context, fitted, pans, viewport};
+  return {render, exec, element, group: groups[0], groups, map, popup, context, fitted, fitOptions, pans, viewport};
 }
 
 function point(i, minutes = i) {
@@ -1253,13 +1261,13 @@ test('one investigation drawer at a time preserves map and allows Escape', () =>
   assert.equal(ui.element('analysis-drawer').hidden, false);
   assert.equal(ui.element('layers-panel').hidden, false);
   assert.equal(ui.element('place-panel').hidden, true);
-  assert.equal(ui.element('drawer-title').textContent, 'Compare tracks');
+  assert.equal(ui.element('drawer-title').textContent, 'Compare routes');
   ui.element('history-actions').open = true;
   ui.element('place-toggle').events.click();
   assert.equal(ui.element('history-actions').open, false);
   assert.equal(ui.element('layers-panel').hidden, true);
   assert.equal(ui.element('place-panel').hidden, false);
-  assert.equal(ui.element('drawer-title').textContent, 'Investigate place');
+  assert.equal(ui.element('drawer-title').textContent, 'What was observed here?');
   ui.exec('document.events.keydown({key:"Escape"})');
   assert.equal(ui.element('analysis-drawer').hidden, true);
   assert.equal(ui.element('place-panel').hidden, true);
@@ -1268,4 +1276,138 @@ test('one investigation drawer at a time preserves map and allows Escape', () =>
   ui.element('drawer-close').events.click();
   assert.equal(ui.element('analysis-drawer').hidden, true);
   assert.equal(ui.element('proximity-panel').hidden, true);
+});
+
+
+test('question-led tools move keyboard focus into the drawer and restore it on Escape', () => {
+  const ui = viewer();
+  ui.exec('mode="history"');
+  for (const id of ['layers-panel', 'place-panel', 'proximity-panel', 'analysis-drawer'])
+    ui.element(id).hidden = true;
+  ui.element('place-toggle').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('drawer-instruction').textContent.includes('Choose a location'), true);
+  assert.equal(ui.context.document.activeElement, ui.element('drawer-close'));
+  ui.exec('document.events.keydown({key:"Escape"})');
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.context.document.activeElement, ui.element('place-toggle'));
+  ui.element('proximity-toggle').events.click();
+  assert.equal(ui.element('proximity-panel').hidden, false);
+  ui.element('drawer-close').events.click();
+  assert.equal(ui.context.document.activeElement, ui.element('proximity-toggle'));
+});
+
+test('choosing a place exposes the map, then returns to the search with its selection', () => {
+  const ui = viewer();
+  for (const id of ['layers-panel', 'place-panel', 'proximity-panel', 'analysis-drawer'])
+    ui.element(id).hidden = true;
+  ui.exec('mode="history"');
+  ui.element('place-toggle').events.click();
+  ui.element('place-pick').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('place-pick-hint').hidden, false);
+  assert.equal(ui.element('place-panel').hidden, false);
+  ui.map.events.click({latlng: {lat: 47.7, lng: 28.0}});
+  assert.equal(ui.element('place-pick-hint').hidden, true);
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('place-search').disabled, false);
+  assert.equal(ui.context.document.activeElement, ui.element('place-search'));
+  assert.equal(ui.exec('placeSelection.lat'), 47.7);
+  ui.element('place-pick').events.click();
+  ui.exec('document.events.keydown({key:"Escape"})');
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('place-pick-hint').hidden, true);
+  assert.equal(ui.context.document.activeElement, ui.element('place-pick'));
+});
+
+test('View map preserves results and allows return, without closing the investigation', () => {
+  const ui = viewer();
+  for (const id of ['layers-panel', 'place-panel', 'proximity-panel', 'analysis-drawer'])
+    ui.element(id).hidden = true;
+  ui.element('proximity-toggle').events.click();
+  ui.element('proximity-status').textContent = 'Two recorded witness fixes';
+  ui.element('drawer-map').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('map-return').hidden, false);
+  ui.element('return-results').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('map-return').hidden, true);
+  assert.equal(ui.element('proximity-status').textContent, 'Two recorded witness fixes');
+  assert.equal(ui.context.document.activeElement, ui.element('drawer-map'));
+});
+
+test('unchanged Monitor markers and coincident-source choice survive catalogue updates', () => {
+  const ui = viewer();
+  const now = new Date().toISOString();
+  ui.exec('selectedMonitorKey="channel:oneplus"');
+  ui.context.data = [
+    {kind: 'channel', id: 'oneplus', track_id: 'r1', last: now, lat: 47, lon: 28},
+    {kind: 'channel', id: 'lg', track_id: 'r2', last: now, lat: 47, lon: 28},
+    {kind: 'channel', id: 'other', track_id: 'r3', last: now, lat: 50, lon: 14}
+  ];
+  ui.exec('monitorCatalogue=data; updateMonitorMarkers()');
+  const pin = ui.exec('monitorLayer.layers[0]');
+  pin.events.click();
+  assert.equal(ui.popup.content.children.length, 2);
+  ui.exec('updateMonitorMarkers()');
+  assert.equal(ui.exec('monitorLayer.layers[0]'), pin);
+  assert.equal(ui.popup.content.children.length, 2);
+  ui.context.data[2] = {...ui.context.data[2], last: new Date(Date.now() - 30_000).toISOString()};
+  ui.exec('monitorCatalogue=data; updateMonitorMarkers()');
+  assert.equal(ui.exec('monitorLayer.layers[0]'), pin);
+  assert.equal(ui.popup.content.children.length, 2);
+  ui.popup.content.children[1].events.click();
+  assert.equal(ui.exec('selectedMonitorKey'), 'channel:lg');
+  assert.equal(ui.exec('selectedTrack'), 'r2');
+});
+
+test('stale receipt styling changes in place without rebuilding a marker', () => {
+  const ui = viewer();
+  ui.context.data = [{kind: 'channel', id:'a', track_id:'r1',
+    last: new Date().toISOString(), lat:47, lon:28}];
+  ui.exec('monitorCatalogue=data; selectedMonitorKey="channel:a"; updateMonitorMarkers()');
+  const pin = ui.exec('monitorLayer.layers[0]');
+  assert.equal(pin.options.fillColor, '#f8b449');
+  ui.context.data[0].last = new Date(Date.now() - 600_000).toISOString();
+  ui.exec('updateMonitorMarkers()');
+  assert.equal(ui.exec('monitorLayer.layers[0]'), pin);
+  assert.equal(pin.options.fillColor, '#748391');
+});
+
+test('map framing respects a desktop evidence drawer and reveals the map on a phone', () => {
+  const ui = viewer();
+  ui.element('map').getBoundingClientRect = () => ({left:0, top:0, right:1000, bottom:700});
+  ui.element('analysis-drawer').getBoundingClientRect = () => ({left:560, top:10, right:990, bottom:690});
+  ui.element('analysis-drawer').hidden = false;
+  ui.context.pair = [point(0), point(1)];
+  ui.exec('fitObservations(pair)');
+  assert.equal(JSON.stringify(ui.fitOptions.at(-1).paddingBottomRight), JSON.stringify([455, 25]));
+  ui.context.window = {matchMedia: () => ({matches:true})};
+  ui.exec('fitObservations(pair)');
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('map-return').hidden, false);
+  assert.equal(JSON.stringify(ui.fitOptions.at(-1).padding), JSON.stringify([25,25]));
+});
+
+
+test('frequent receipt age updates do not create a stream of screen-reader status announcements', () => {
+  const ui = viewer();
+  const first = {...point(0), time: new Date(Date.now() - 10_000).toISOString()};
+  ui.render([first], 'live');
+  assert.equal(ui.element('status-alert').textContent, '');
+  ui.exec('status("Observation catalogue unavailable: HTTP 503")');
+  assert.match(ui.element('status-alert').textContent, /HTTP 503/);
+  ui.exec('status("Observation catalogue unavailable: HTTP 503")');
+  assert.match(ui.element('status-alert').textContent, /HTTP 503/);
+  ui.exec('status("Monitor · Received 12s ago")');
+  assert.equal(ui.element('status-alert').textContent, '');
+});
+
+test('viewing map without place-pick mode cannot accidentally change a place query', () => {
+  const ui = viewer();
+  ui.exec('mode="history"; placeSelection={lat:47, lon:28}; viewingMap=true');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 50, lng: 14}});
+  assert.equal(ui.exec('placeSelection.lat'), 47);
+  assert.equal(ui.exec('placeSelection.lon'), 28);
 });

@@ -55,6 +55,9 @@ let sourceCatalogue = [];
 let selectedMonitorKey = '';
 let cameraMode = 'free';
 let initialMonitorFit = 'visible';
+const monitorMarkers = new Map(); // Reconcile by reported position; preserve popups on refresh.
+let pickingPlace = false;
+let viewingMap = false;
 let cameraMoving = false;
 let historyRunList = [];
 let historyLoaded = false;
@@ -79,7 +82,14 @@ let ticks = 0;
 let recordingGaps = [];
 let positioningJumps = [];
 
-function status(message) { $('status').textContent = message; }
+function status(message) {
+  if ($('status').textContent === message) return;
+  $('status').textContent = message;
+  // The ticking receipt age is informative but must not be announced every
+  // two seconds. Only genuine failures enter the assertive live region.
+  $('status-alert').textContent = /unavailable|failed|invalid|error|rejected|HTTP [45]\d\d/i.test(message)
+    ? message : '';
+}
 function localTime(value) { return new Date(value).toLocaleString(); }
 function localInput(value) {
   const d = new Date(value);
@@ -111,8 +121,8 @@ function receiptState(time, now = Date.now()) {
   return {kind: elapsed <= RECENT_RECEIPT_MS ? 'recent' : 'stale', label};
 }
 function feedState(kind, label) {
-  $('feed-state').textContent = label;
-  $('feed-state').setAttribute('data-state', kind);
+  if ($('feed-state').textContent !== label) $('feed-state').textContent = label;
+  if ($('feed-state').getAttribute('data-state') !== kind) $('feed-state').setAttribute('data-state', kind);
 }
 function runLabel(record) {
   // History displays exact run IDs and stable receipt times; no ticking ages.
@@ -538,46 +548,75 @@ function selectMonitor(item) {
   refreshLive();
 }
 
+function monitorMarkerChoices(group, position) {
+  const choices = document.createElement('div');
+  for (const item of group) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = `${monitorName(item)} · ${localTime(item.last)}`;
+    button.addEventListener('click', () => { map.closePopup(); selectMonitor(item); });
+    choices.appendChild(button);
+  }
+  return choices;
+}
+
 function updateMonitorMarkers() {
-  monitorLayer.clearLayers();
-  if (mode !== 'live') return;
+  if (mode !== 'live') {
+    monitorLayer.clearLayers();
+    monitorMarkers.clear();
+    return;
+  }
   const items = monitorPositions();
-  // Identical reported coordinates would hide all but the top marker. Combine
-  // only exactly coincident symbols; do not merge source histories or fixes.
+  // Share a symbol only for exactly coincident reported coordinates, never
+  // merge the underlying source claims, observations or recording runs.
   const groups = new Map();
   for (const item of items) {
     const key = `${item.lat},${item.lon}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   }
-  for (const group of groups.values()) {
+  for (const [key, entry] of monitorMarkers) {
+    if (!groups.has(key)) {
+      monitorLayer.removeLayer(entry.layer);
+      monitorMarkers.delete(key);
+    }
+  }
+  for (const [key, group] of groups) {
     const chosen = group.some(item => monitorKey(item) === selectedMonitorKey);
     const recent = group.some(item => receiptState(item.last).kind === 'recent');
     const first = group[0];
-    const p = [first.lat, first.lon];
+    const position = [first.lat, first.lon];
+    const signature = JSON.stringify([chosen, recent, group.map(item =>
+      [monitorKey(item), monitorName(item), item.last])]);
+    let entry = monitorMarkers.get(key);
+    if (entry && entry.signature === signature) continue;
+    const options = {radius: group.length > 1 ? 11 : chosen ? 10 : 8,
+      weight: chosen ? 3 : 2, color: chosen ? '#132936' : '#edf2f5',
+      fillColor: recent ? (chosen ? '#f8b449' : '#68ccae') : '#748391',
+      fillOpacity: 0.95, bubblingMouseEvents: false};
     const label = document.createElement('span');
     label.textContent = group.length === 1
       ? `${monitorName(first)} · ${recent ? 'Recent receipt' : 'No verified recent receipt'} · ${localTime(first.last)}`
       : `${group.length} sources at identical reported coordinates · Click to choose`;
-    L.circleMarker(p, {radius: group.length > 1 ? 11 : chosen ? 10 : 8,
-      weight: chosen ? 3 : 2, color: chosen ? '#132936' : '#edf2f5',
-      fillColor: recent ? (chosen ? '#f8b449' : '#68ccae') : '#748391',
-      fillOpacity: 0.95, bubblingMouseEvents: false})
-      .bindTooltip(label)
-      .on('click', () => {
-        if (group.length === 1) return selectMonitor(first);
-        const choices = document.createElement('div');
-        for (const item of group) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = `${monitorName(item)} · ${localTime(item.last)}`;
-          button.addEventListener('click', () => { map.closePopup(); selectMonitor(item); });
-          choices.appendChild(button);
-        }
-        L.popup().setLatLng(p).setContent(choices).openOn(map);
-      }).addTo(monitorLayer);
+    if (!entry) {
+      entry = {group, signature};
+      entry.layer = L.circleMarker(position, options).bindTooltip(label)
+        .on('click', () => {
+          if (entry.group.length === 1) return selectMonitor(entry.group[0]);
+          entry.popup = L.popup().setLatLng(position)
+            .setContent(monitorMarkerChoices(entry.group, position)).openOn(map);
+        }).addTo(monitorLayer);
+      monitorMarkers.set(key, entry);
+    } else {
+      entry.group = group;
+      entry.signature = signature;
+      entry.layer.setStyle(options).setRadius(options.radius);
+      entry.layer.setTooltipContent(label);
+      if (entry.popup) entry.popup.setContent(monitorMarkerChoices(group, position));
+    }
   }
-  $('monitor-count').textContent = `${items.length} positions shown · receipt status, not connectivity`;
+  const count = `${items.length} positions shown · receipt status, not connectivity`;
+  if ($('monitor-count').textContent !== count) $('monitor-count').textContent = count;
 }
 
 function moveCamera(action, force = false) {
@@ -802,9 +841,22 @@ function routeParts(observations) {
 
 function fitObservations(observations) {
   if (!observations.length) return;
+  // A full-height mobile results sheet covers the map. Reveal the actual
+  // evidence first, with a conspicuous way back to the preserved results.
+  if (!$('analysis-drawer').hidden && typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 720px)').matches) showMapInsteadOfDrawer();
+  const mapRect = $('map').getBoundingClientRect?.();
+  const drawerRect = !$('analysis-drawer').hidden && $('analysis-drawer').getBoundingClientRect?.();
+  const obscuredRight = mapRect && drawerRect
+    ? Math.max(0, Math.min(mapRect.right, drawerRect.right) - Math.max(mapRect.left, drawerRect.left)) : 0;
+  // On desktop, fit reported points in the unobscured map area, not behind
+  // the right-hand evidence drawer. A map pair is *not* a connecting route.
+  const padding = obscuredRight > 0 && drawerRect.left > mapRect.left
+    ? {paddingTopLeft: [25, 25], paddingBottomRight: [obscuredRight + 25, 25]}
+    : {padding: [25, 25]};
   const bounds = L.latLngBounds(observations.map(p => [p.lat, p.lon]));
-  if (observations.length === 1) map.setView(bounds.getCenter(), 15);
-  else map.fitBounds(bounds, {padding: [25, 25], maxZoom: 16});
+  if (observations.length === 1 && !obscuredRight) map.setView(bounds.getCenter(), 15);
+  else map.fitBounds(bounds, {...padding, maxZoom: observations.length === 1 ? 15 : 16});
 }
 
 function render(fit = false) {
@@ -937,7 +989,7 @@ function historyDefaults() {
 }
 function setMode(next) {
   if (mode === next) return;
-  closeAnalysisDrawer();
+  closeAnalysisDrawer({restoreFocus: false});
   mode = next;
   $('live').setAttribute('aria-pressed', String(mode === 'live'));
   $('history').setAttribute('aria-pressed', String(mode === 'history'));
@@ -961,6 +1013,7 @@ function setMode(next) {
   updateSelector();
   clearView();
   if (mode === 'history') {
+    updateMonitorMarkers();
     historyDefaults();
     loadHistory();
     loadRunPage(true);
@@ -1531,15 +1584,38 @@ $('track').addEventListener('change', () => {
   if (mode === 'history') {historyDefaults(); loadHistory();}
   else refreshLive();
 });
-// One investigation at a time. The map keeps its full viewport when the drawer opens.
+// Visible investigation questions share one non-modal drawer. Focus moves into
+// the opened tool and back to its launcher; map interaction remains available.
 const ANALYSIS_TOOLS = [
-  ['layers-panel', 'layers-toggle', 'Compare tracks'],
-  ['place-panel', 'place-toggle', 'Investigate place'],
-  ['proximity-panel', 'proximity-toggle', 'Compare runs']
+  ['layers-panel', 'layers-toggle', 'Compare routes',
+    'Choose additional recordings to compare their reported paths and time coverage.'],
+  ['place-panel', 'place-toggle', 'What was observed here?',
+    'Choose a location on the map, then search recorded observations near it.'],
+  ['proximity-panel', 'proximity-toggle', 'Where did two recordings overlap?',
+    'Choose another recording and find original fixes close in reported space and receipt time.']
 ];
-function closeAnalysisDrawer() {
+function returnFromMap() {
+  if (!viewingMap) return;
+  viewingMap = false;
+  $('map-return').hidden = true;
+  $('analysis-drawer').hidden = false;
+  $('drawer-map').focus();
+}
+function finishPlacePick(chosen = false) {
+  if (!pickingPlace) return;
+  pickingPlace = false;
+  $('place-pick-hint').hidden = true;
+  $('analysis-drawer').hidden = false;
+  (chosen ? $('place-search') : $('place-pick')).focus();
+}
+function closeAnalysisDrawer({restoreFocus = true} = {}) {
+  const opened = ANALYSIS_TOOLS.find(([panel]) => !$(panel).hidden);
   const placeWasOpen = !$('place-panel').hidden;
   const acrossWasOpen = !$('proximity-panel').hidden;
+  pickingPlace = false;
+  viewingMap = false;
+  $('place-pick-hint').hidden = true;
+  $('map-return').hidden = true;
   for (const [panel, toggle] of ANALYSIS_TOOLS) {
     $(panel).hidden = true;
     $(toggle).setAttribute('aria-expanded', 'false');
@@ -1551,23 +1627,48 @@ function closeAnalysisDrawer() {
     resetDatabasePlaceSearch();
   }
   if (acrossWasOpen) resetRunProximity();
+  if (restoreFocus && opened && mode === 'history') $(opened[1]).focus();
 }
 function toggleAnalysisDrawer(panelId) {
   const selected = ANALYSIS_TOOLS.find(([panel]) => panel === panelId);
   if (!selected) return;
   const opening = $(panelId).hidden;
-  closeAnalysisDrawer();
-  if (!opening) return;
+  closeAnalysisDrawer({restoreFocus: false});
+  if (!opening) {$(selected[1]).focus(); return;}
   $(panelId).hidden = false;
   $(selected[1]).setAttribute('aria-expanded', 'true');
   $('drawer-title').textContent = selected[2];
+  $('drawer-instruction').textContent = selected[3];
   $('analysis-drawer').hidden = false;
   $('history-actions').open = false;
   if (panelId === 'proximity-panel') updateProximityChoices();
+  $('drawer-close').focus();
 }
-$('drawer-close').addEventListener('click', closeAnalysisDrawer);
+function startPlacePick() {
+  if (mode !== 'history' || $('place-panel').hidden) return;
+  viewingMap = false;
+  pickingPlace = true;
+  $('analysis-drawer').hidden = true;
+  $('place-pick-hint').hidden = false;
+  $('place-pick-cancel').focus();
+}
+function showMapInsteadOfDrawer() {
+  if ($('analysis-drawer').hidden) return;
+  viewingMap = true;
+  $('analysis-drawer').hidden = true;
+  $('map-return').hidden = false;
+  $('return-results').focus();
+}
+$('place-pick').addEventListener('click', startPlacePick);
+$('place-pick-cancel').addEventListener('click', () => finishPlacePick());
+$('drawer-map').addEventListener('click', showMapInsteadOfDrawer);
+$('return-results').addEventListener('click', returnFromMap);
+$('drawer-close').addEventListener('click', () => closeAnalysisDrawer());
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !$('analysis-drawer').hidden) closeAnalysisDrawer();
+  if (event.key !== 'Escape') return;
+  if (pickingPlace) finishPlacePick();
+  else if (viewingMap) returnFromMap();
+  else if (!$('analysis-drawer').hidden) closeAnalysisDrawer();
 });
 for (const [panel, toggle] of ANALYSIS_TOOLS)
   $(toggle).addEventListener('click', () => toggleAnalysisDrawer(panel));
@@ -1593,10 +1694,11 @@ $('witness-annotation-next').addEventListener('click', () => loadWitnessAnnotati
 $('proximity-search').addEventListener('click', () => searchRunProximity());
 $('proximity-next').addEventListener('click', () => searchRunProximity(true));
 map.on('click', event => {
-  if (mode !== 'history' || $('place-panel').hidden) return;
+  if (mode !== 'history' || $('place-panel').hidden || viewingMap) return;
   placeSelection = {lat: event.latlng.lat, lon: event.latlng.lng};
   resetDatabasePlaceSearch();
   updatePlaceInspector();
+  if (pickingPlace) finishPlacePick(true);
 });
 refreshTracks();
 setInterval(() => {

@@ -23,6 +23,19 @@
     #history-controls {padding-top:9px;border-top:1px solid #2d4654}
     #history-controls label,#monitor-controls label {white-space:nowrap}
     #history-controls .time-options {flex:0 1 auto}
+    .history-questions {display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .history-questions strong {font-size:12px;color:var(--quiet);font-weight:500}
+    .history-questions button {background:#244151;border-color:#5c7b8c}
+    .history-questions button[aria-expanded=true] {background:#1b5978;border-color:#8ed6ff}
+    .history-supplement {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .drawer-instruction {color:#d0e1e9;margin:3px 0 15px;font-size:13px}
+    .map-hint {position:absolute;z-index:710;left:12px;bottom:16px;max-width:calc(100% - 24px);
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#142630f5;
+      border:1px solid #78bee9;box-shadow:0 6px 20px #07131da6;border-radius:9px;padding:9px 12px}
+    .map-hint strong {font-size:13px}
+    .drawer-utilities {display:flex;align-items:center;gap:5px}
+    .drawer-utilities button {font-size:13px}
+
     .history-actions summary,.place-filters summary {cursor:pointer;color:var(--accent);font-weight:600}
     .history-actions-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 0}
     .time-options[open] {padding:5px 9px 8px;background:#1b2d39;border:1px solid var(--border);border-radius:8px}
@@ -31,7 +44,7 @@
     .view-options {position:relative}
     .view-options .view-options-body {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
     #monitor-count,#runs-status,#page-status,#compare-status,#status,#detail {color:var(--quiet);font-size:12px;font-variant-numeric:tabular-nums}
-    #status {max-width:36ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #status {max-width:48ch;white-space:normal;overflow-wrap:anywhere}
     .controls {gap:8px}
     label {display:flex;align-items:center;gap:6px;color:#c4d5df}
     input,button,select {font:inherit;color:#ebf4f8;border:1px solid #526b7a;background:var(--raised);border-radius:7px;padding:7px 10px}
@@ -82,12 +95,26 @@
     .time-result {border:1px solid var(--border);border-radius:5px;padding:3px 7px}
     #detail {min-width:220px}
     #gap-status {color:#eac6ff}
+    .sr-only {position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     [hidden] {display:none!important}
     @media(max-width:720px) {
       header {padding:9px 10px}
-      #track {max-width:calc(100vw - 20px)}
+      .top > .controls {display:grid;grid-template-columns:minmax(0,1fr) auto;width:100%;gap:7px}
+      .top > .controls label {min-width:0}
+      #selection-label {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+      #track {min-width:0;width:100%;max-width:none}
+      .mode-switch button {padding:7px 9px}
+      .map-stage {min-height:0}
       .motto {display:none}
-      .analysis-drawer {top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:61%;border-radius:12px}
+      .analysis-drawer {top:8px;left:8px;right:8px;bottom:8px;width:auto;max-height:none;border-radius:12px}
+      .history-questions {width:100%;flex-wrap:wrap;padding:2px 0 4px}
+      .history-questions button {padding:6px 9px;font-size:12px}
+      #place-results,#place-clusters,#place-proximity-results,#proximity-results,
+      #witness-timeline-events,#witness-annotation-results {max-height:none;overflow:visible}
+      .map-hint {left:8px;bottom:8px;right:8px;max-width:none}
+      .drawer-heading {gap:5px}
+      .drawer-utilities button {padding:4px 7px}
       #history-controls label {max-width:100%}
       #inspect,#time-panel {padding:8px 10px}
       #detail {width:100%}
@@ -98,7 +125,7 @@
 <body>
   <header>
     <div class="top">
-      <div class="brand"><h1>Cartochron</h1><span class="motto">Observe · Compare · Question</span><span id="feed-state" data-state="unknown">Checking receipts</span><span id="status" role="status">Connecting…</span><a class="help-link" href="/help" target="_blank" rel="noopener">Guide</a></div>
+      <div class="brand"><h1>Cartochron</h1><span class="motto">Observe · Compare · Question</span><span id="feed-state" data-state="unknown" role="status" aria-live="polite">Checking receipts</span><span id="status">Connecting…</span><span id="status-alert" class="sr-only" role="alert"></span><a class="help-link" href="/help" target="_blank" rel="noopener">Guide</a></div>
       <div class="controls">
         <label><span id="selection-label">Source / channel</span> <select id="track" aria-label="Monitored source or channel"><option>Loading…</option></select></label>
         <div class="mode-switch" aria-label="Map mode">
@@ -118,32 +145,49 @@
       <span id="monitor-count" aria-live="polite"></span></div></details>
     </div>
     <div id="history-controls" hidden>
-      <label>Browse <select id="history-filter" aria-label="Filter recording runs">
-        <option value="">All recordings</option>
-      </select></label>
-      <span id="runs-status"></span>
-      <details id="history-actions" class="history-actions"><summary>Tools &amp; filters</summary>
+      <div class="history-supplement">
+        <label>Recordings <select id="history-filter" aria-label="Filter recording runs">
+          <option value="">All recordings</option>
+        </select></label>
+        <span id="runs-status"></span>
+        <button id="older-runs" type="button" hidden>Older recordings</button>
+        <button id="more" type="button" hidden>Load more observations</button>
+        <span id="page-status" aria-live="polite"></span>
+      </div>
+      <div class="history-questions" role="group" aria-label="Choose an investigation question">
+        <strong>Find out:</strong>
+        <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">What was here?</button>
+        <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Compare routes</button>
+        <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Where did two recordings overlap?</button>
+      </div>
+      <details id="history-actions" class="history-actions"><summary>Time and filters</summary>
         <div class="history-actions-body">
-      <button id="older-runs" type="button" hidden>Older recordings</button>
-
-      <details class="time-options"><summary>Time interval</summary><div class="time-fields"><label>From <input id="from" type="datetime-local" step="1"></label>
-      <label>To <input id="to" type="datetime-local" step="1"></label>
-      <button id="apply" type="button">Show interval</button></div></details>
-      <button id="more" type="button" hidden>Load more</button>
-      <button id="layers-toggle" type="button" aria-expanded="false" aria-controls="layers-panel">Compare tracks <span id="layer-count">1 visible</span></button>
-      <button id="place-toggle" type="button" aria-expanded="false" aria-controls="place-panel">Investigate place</button>
-      <button id="proximity-toggle" type="button" aria-expanded="false" aria-controls="proximity-panel">Compare runs</button>
-      <span id="compare-status" aria-live="polite"></span>
-      <span id="page-status" aria-live="polite"></span>
+          <details class="time-options"><summary>Receipt-time interval</summary>
+            <div class="time-fields"><label>From <input id="from" type="datetime-local" step="1"></label>
+            <label>To <input id="to" type="datetime-local" step="1"></label>
+            <button id="apply" type="button">Show interval</button></div>
+          </details>
         </div>
       </details>
     </div>
   </header>
   <div class="map-stage">
     <main id="map" aria-label="GPS observation map"></main>
-    <aside id="analysis-drawer" class="analysis-drawer" hidden aria-label="Investigation tools">
-      <div class="drawer-heading"><strong id="drawer-title">Investigation</strong><button type="button" id="drawer-close" aria-label="Close investigation tools">×</button></div>
+    <div id="place-pick-hint" class="map-hint" hidden>
+      <strong>Click the map to choose a place.</strong>
+      <button type="button" id="place-pick-cancel">Return to investigation</button>
+    </div>
+    <div id="map-return" class="map-hint" hidden>
+      <strong>Viewing evidence on the map</strong>
+      <button type="button" id="return-results">Back to results</button>
+    </div>
+    <aside id="analysis-drawer" class="analysis-drawer" hidden aria-labelledby="drawer-title">
+      <div class="drawer-heading"><strong id="drawer-title">Investigation</strong>
+        <div class="drawer-utilities"><button type="button" id="drawer-map">View map</button>
+          <button type="button" id="drawer-close" aria-label="Close investigation tools">×</button></div></div>
+      <p id="drawer-instruction" class="drawer-instruction"></p>
     <div id="layers-panel" hidden>
+      <p id="compare-status" role="status"></p>
       <div id="layers-list" role="group" aria-label="Visible comparison tracks"></div>
       <label>Comparison time <select id="compare-time" aria-label="Comparison time range">
         <option value="all">Entire runs (spatial)</option>
@@ -152,28 +196,29 @@
       <small>Focused track stays visible. Select up to three more runs.</small>
     </div>
     <div id="place-panel" hidden>
-      <div class="controls"><strong>Place inspector</strong>
+      <div class="controls">
+        <button type="button" id="place-pick">Choose a place on the map</button>
         <label>Radius <select id="place-radius" aria-label="Place search radius">
           <option value="50">50 m</option><option value="100" selected>100 m</option>
           <option value="250">250 m</option>
         </select></label>
-        <span id="place-status">Click a location on the map to inspect loaded observations.</span>
       </div>
-      <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
-      <details class="place-filters"><summary>Scope and time (optional)</summary>
-      <div class="controls" aria-label="Recorded place search filters">
-        <label>Scope <select id="place-scope" aria-label="Place search source or channel">
-          <option value="">All sources and channels</option>
-        </select></label>
-        <label>From <input id="place-from" type="datetime-local" step="1" aria-label="Place receipt time from"></label>
-        <label>To <input id="place-to" type="datetime-local" step="1" aria-label="Place receipt time to"></label>
-      </div>
-      </details>
       <div class="controls">
         <button id="place-search" type="button" disabled>Search recorded history</button>
         <button id="place-next" type="button" hidden>Older search page</button>
-        <span id="place-db-status" role="status">Select a place to search across all recorded runs.</span>
       </div>
+      <p id="place-db-status" role="status">Select a place to search across recorded runs.</p>
+      <details class="place-filters"><summary>Limit search by source or time (optional)</summary>
+        <div class="controls" aria-label="Recorded place search filters">
+          <label>Scope <select id="place-scope" aria-label="Place search source or channel">
+            <option value="">All sources and channels</option>
+          </select></label>
+          <label>From <input id="place-from" type="datetime-local" step="1" aria-label="Place receipt time from"></label>
+          <label>To <input id="place-to" type="datetime-local" step="1" aria-label="Place receipt time to"></label>
+        </div>
+      </details>
+      <p id="place-status">Nearby fixes from currently loaded recordings will also appear below.</p>
+      <ol id="place-results" aria-label="Chronological observations near selected place"></ol>
       <p id="place-cluster-status">Matching-fix groups appear after searching.</p>
       <ol id="place-clusters" aria-label="Groups of retrieved matching observations"></ol>
       <div class="controls">
