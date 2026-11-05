@@ -33,6 +33,15 @@
       display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#142630f5;
       border:1px solid #78bee9;box-shadow:0 6px 20px #07131da6;border-radius:9px;padding:9px 12px}
     .map-hint strong {font-size:13px}
+    /* A question and a recovery action, not a blank map or a toast that vanishes. */
+    .workspace-state {position:absolute;z-index:600;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:min(430px,calc(100% - 30px));padding:22px;background:#152934f2;
+      border:1px solid #577384;border-radius:13px;box-shadow:0 12px 32px #091822b3}
+    .workspace-state h2 {font-size:18px;line-height:1.3;margin:0 0 9px}
+    .workspace-state p {color:#c4d8e4;font-size:13px;margin:0 0 14px}
+    .workspace-state .workspace-actions {display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+    .workspace-state a {color:var(--accent)}
+    .workspace-state[data-kind=error] {border-color:#b87d6b}
     .drawer-utilities {display:flex;align-items:center;gap:5px}
     .drawer-utilities button {font-size:13px}
 
@@ -193,7 +202,7 @@
       </div>
       <details id="history-actions" class="history-actions"><summary>Time and filters</summary>
         <div class="history-actions-body">
-          <details class="time-options"><summary>Receipt-time interval</summary>
+          <details id="history-time-options" class="time-options"><summary>Receipt-time interval</summary>
             <div class="time-fields"><label>From <input id="from" type="datetime-local" step="1"></label>
             <label>To <input id="to" type="datetime-local" step="1"></label>
             <button id="apply" type="button">Show interval</button></div>
@@ -204,6 +213,14 @@
   </header>
   <div class="map-stage">
     <main id="map" aria-label="GPS observation map"></main>
+    <section id="workspace-state" class="workspace-state" data-kind="loading" aria-labelledby="workspace-title" hidden>
+      <h2 id="workspace-title">Loading observations…</h2>
+      <p id="workspace-description">Checking for recorded observations.</p>
+      <div class="workspace-actions">
+        <button id="workspace-action" type="button" hidden>Try again</button>
+        <a href="/help">Open the Guide</a>
+      </div>
+    </section>
     <div id="place-pick-hint" class="map-hint" hidden>
       <strong>Click the map to choose a place.</strong>
       <button type="button" id="place-pick-cancel">Return to investigation</button>

@@ -83,6 +83,57 @@ let lastIndex = 0;
 let ticks = 0;
 let recordingGaps = [];
 let positioningJumps = [];
+let workspaceAction = null;
+// A missing observation, an incomplete query, and an unavailable receiver are
+// different states. Never claim that empty results prove nothing happened.
+function workspaceState(kind, title, explanation, actionLabel = '', action = null) {
+  const panel = $('workspace-state');
+  panel.dataset.kind = kind;
+  $('workspace-title').textContent = title;
+  $('workspace-description').textContent = explanation;
+  $('workspace-action').hidden = !action;
+  $('workspace-action').textContent = actionLabel;
+  workspaceAction = action;
+  panel.hidden = false;
+}
+function hideWorkspaceState() {
+  $('workspace-state').hidden = true;
+  workspaceAction = null;
+}
+function noRecordingsState(filtered = false) {
+  if (filtered) {
+    workspaceState('empty', 'No recordings in this selection',
+      'Other recordings may still exist. Remove the filter to browse them.',
+      'Show all recordings', () => {
+        historyFilter = '';
+        $('history-filter').value = '';
+        historyTrack = '';
+        selectedTrack = '';
+        loadRunPage(true);
+      });
+  } else {
+    workspaceState('empty', 'No recordings yet',
+      'Cartochron displays reported observations after a producer sends them. '
+      + 'To explore safely, run make demo in a separate Cartochron checkout; '
+      + 'the demo does not use this database.');
+  }
+}
+function emptyIntervalState() {
+  workspaceState('empty', 'No observations in this interval',
+    'This time window contains no recorded fixes for the selected run. '
+    + 'That does not establish what happened between observations.',
+    'Change time interval', () => {
+      $('history-actions').open = true;
+      $('history-time-options').open = true;
+      const options = $('from');
+      // Native details and date inputs are a better recovery path than
+      // silently widening a forensic query.
+      options.focus();
+    });
+}
+$('workspace-action').addEventListener('click', () => {
+  if (workspaceAction) workspaceAction();
+});
 
 function status(message) {
   if ($('status').textContent === message) return;
@@ -823,9 +874,14 @@ async function loadRunPage(reset = false) {
       }
       updateSelector();
       renderLayerPanel();
+      if (!historyRunList.length && !points.length && !historyTrack)
+        noRecordingsState(Boolean(historyFilter));
     }
   } catch (error) {
     if (token === historyRunGeneration) {
+      if (!points.length) workspaceState('error', 'Could not browse recordings',
+        'The recording catalogue could not be loaded. Existing observations have not been deleted.',
+        'Try again', () => loadRunPage(true));
       historyLoaded = true;
       updateRunPageStatus();
       $('runs-status').textContent = 'Cannot browse runs: ' + error.message;
@@ -885,6 +941,10 @@ function clearView() {
   $('gap-status').textContent = '';
   feedState(mode === 'live' ? 'unknown' : 'history', mode === 'live' ? 'Checking receipts' : 'History');
   status(selectedTrack ? 'Loading observations…' : 'Waiting for observations');
+  if (selectedTrack) workspaceState('loading', 'Loading recorded observations…',
+    'Reading the selected recording.');
+  else workspaceState('loading', 'Checking for recordings…',
+    'Looking for observations you can explore.');
 }
 
 function fixDetails(p) {
@@ -1003,10 +1063,18 @@ function render(fit = false) {
   inspectedMarker = null;
   if (!points.length) {
     $('inspect').hidden = true;
-    if (mode === 'live') showLiveStatus();
-    else status('No observations in this interval');
+    if (mode === 'live') {
+      showLiveStatus();
+      workspaceState('empty', 'No observations in this recording',
+        'This recording has no stored positions yet. Receipt status does not prove a producer is connected.',
+        'Check again', () => refreshLive());
+    } else {
+      status('No observations in this interval');
+      emptyIntervalState();
+    }
     return;
   }
+  hideWorkspaceState();
   const {segments: routeSegments, ends, gaps, jumps} = routeParts(points);
   recordingGaps = gaps;
   positioningJumps = jumps;
@@ -1190,9 +1258,22 @@ async function refreshTracks() {
       clearView();
       if (mode === 'history') {historyDefaults(); loadHistory();}
       else refreshLive();
-    } else if (!selectedTrack) status('Waiting for observations');
+    } else if (!selectedTrack) {
+      status('Waiting for observations');
+      if (mode === 'live' && !monitorCatalogue.length) {
+        if (catalogue.length) workspaceState('empty', 'No monitored positions',
+          'Recording history exists, but there is no current monitor entry. Browse the stored runs in History.',
+          'Open History', () => setMode('history'));
+        else noRecordingsState();
+      }
+    }
     if (mode === 'history') updateRunPageStatus();
-  } catch (error) { status('Observation catalogue unavailable: ' + error.message); }
+  } catch (error) {
+    status('Observation catalogue unavailable: ' + error.message);
+    if (!points.length) workspaceState('error', 'Cannot load recordings',
+      'Cartochron could not retrieve the catalogue. This is a loading failure, not an empty database.',
+      'Try again', () => refreshTracks());
+  }
   finally { tracksBusy = false; }
 }
 
@@ -1207,7 +1288,12 @@ async function refreshLive() {
     points = result.points;
     render(firstLoad);
   } catch (error) {
-    if (token === revision) status('Recent observations unavailable: ' + error.message);
+    if (token === revision) {
+      status('Recent observations unavailable: ' + error.message);
+      if (!points.length) workspaceState('error', 'Cannot load observations',
+        'The selected recording could not be loaded. Try again; no observations were removed.',
+        'Try again', () => refreshLive());
+    }
   } finally { liveBusy = false; }
 }
 
@@ -1220,6 +1306,13 @@ async function loadHistory(more = false) {
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) ||
         Date.parse(from) >= Date.parse(to)) {
       status('Choose a valid interval: From must precede To');
+      workspaceState('error', 'Choose a valid time interval',
+        'The start must be before the end. No observations have been searched.',
+        'Edit interval', () => {
+          $('history-actions').open = true;
+          $('history-time-options').open = true;
+          $('from').focus();
+        });
       return;
     }
     bounds = {from: new Date(from).toISOString(), to: new Date(to).toISOString()};
@@ -1245,7 +1338,12 @@ async function loadHistory(more = false) {
       : cursor ? `${points.length} shown · more observations available`
         : `${points.length} shown · interval complete`;
   } catch (error) {
-    if (token === revision) status('Historical query failed: ' + error.message);
+    if (token === revision) {
+      status('Historical query failed: ' + error.message);
+      if (!points.length) workspaceState('error', 'Cannot load this interval',
+        'The history request failed. This does not mean the interval has no observations.',
+        'Try again', () => loadHistory());
+    }
   } finally { $('more').disabled = false; }
 }
 
@@ -1877,6 +1975,8 @@ map.on('click', event => {
   updatePlaceInspector();
   if (pickingPlace) finishPlacePick(true);
 });
+workspaceState('loading', 'Loading Cartochron…',
+  'Checking the observation catalogue.');
 refreshTracks();
 setInterval(() => {
   ticks++;

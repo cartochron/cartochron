@@ -1717,3 +1717,113 @@ test('stale evidence action is not focused after its tool was discarded', () => 
   ui.exec('closeAnalysisDrawer({restoreFocus:false})');
   assert.equal(ui.exec('mapReturnTarget'), null);
 });
+
+
+test('first load is a pending state, not an assertion of zero recordings', () => {
+  const ui = viewer();
+  assert.equal(ui.element('workspace-state').dataset.kind, 'loading');
+  assert.match(ui.element('workspace-title').textContent, /Loading/);
+  assert.equal(ui.element('workspace-action').hidden, true);
+});
+
+test('empty catalogue offers a safe tour, not a fictional map location', async () => {
+  const ui = viewer();
+  ui.context.fetch = async path => {
+    const payload = path === '/api/tracks' ? {tracks: []}
+      : path === '/api/monitor' ? {entries: []}
+        : path === '/api/sources' ? {sources: []}
+          : {tracks: [], next_cursor: null};
+    return {ok: true, json: async () => payload};
+  };
+  ui.exec('tracksBusy = false');
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.element('workspace-state').hidden, false);
+  assert.equal(ui.element('workspace-state').dataset.kind, 'empty');
+  assert.match(ui.element('workspace-title').textContent, /No recordings yet/);
+  assert.match(ui.element('workspace-description').textContent, /make demo/);
+  assert.equal(ui.element('workspace-action').hidden, true);
+});
+
+test('filtered-out History runs offer an explicit route back to all recordings', async () => {
+  const ui = viewer();
+  ui.exec('mode = "history"; historyFilter = "channel:missing"');
+  ui.element('history-filter').value = 'channel:missing';
+  ui.context.fetch = async path => ({ok: true, json: async () =>
+    path.startsWith('/api/runs?') ? {tracks: [], next_cursor: null} : {points: []}});
+  await ui.exec('loadRunPage(true)');
+  assert.match(ui.element('workspace-title').textContent, /No recordings in this selection/);
+  assert.equal(ui.element('workspace-action').hidden, false);
+  ui.element('workspace-action').events.click();
+  assert.equal(ui.exec('historyFilter'), '');
+  assert.equal(ui.element('history-filter').value, '');
+});
+
+test('an empty time window offers its controls, without widening evidence silently', async () => {
+  const ui = viewer();
+  ui.exec('mode = "history"; selectedTrack = "run-a"');
+  ui.element('from').value = '2026-11-04T10:00';
+  ui.element('to').value = '2026-11-04T10:20';
+  ui.context.fetch = async path => ({ok: true, json: async () =>
+    ({track_id:'run-a', points: [], next_cursor: null})});
+  await ui.exec('loadHistory()');
+  assert.match(ui.element('workspace-title').textContent, /No observations in this interval/);
+  assert.match(ui.element('workspace-description').textContent, /does not establish/);
+  assert.equal(ui.element('workspace-action').hidden, false);
+  ui.element('workspace-action').events.click();
+  assert.equal(ui.element('history-actions').open, true);
+  assert.equal(ui.element('history-time-options').open, true);
+  assert.equal(ui.context.document.activeElement, ui.element('from'));
+});
+
+test('failed catalogue is not mistaken for an empty database and supports retry', async () => {
+  const ui = viewer();
+  let requests = 0;
+  ui.context.fetch = async () => { requests++; throw new Error('offline'); };
+  ui.exec('tracksBusy = false');
+  await ui.exec('refreshTracks()');
+  assert.equal(ui.element('workspace-state').dataset.kind, 'error');
+  assert.match(ui.element('workspace-title').textContent, /Cannot load recordings/);
+  assert.doesNotMatch(ui.element('workspace-title').textContent, /No recordings/);
+  assert.equal(ui.element('workspace-action').hidden, false);
+  ui.element('workspace-action').events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(requests >= 2);
+});
+
+test('a successful observation hides the empty-state panel without losing the evidence', () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  assert.equal(ui.element('workspace-state').hidden, false);
+  const layers = ui.render([point(0)], 'history', 'run-a');
+  assert.equal(ui.element('workspace-state').hidden, true);
+  assert.ok(layers.some(layer => layer.type === 'circle'));
+});
+
+test('a failed History fetch never claims that the interval is empty', async () => {
+  const ui = viewer();
+  ui.exec('mode = "history"; selectedTrack = "run-a"');
+  ui.element('from').value = '2026-11-04T10:00';
+  ui.element('to').value = '2026-11-04T10:20';
+  ui.context.fetch = async () => {throw new Error('connection lost');};
+  await ui.exec('loadHistory()');
+  assert.equal(ui.element('workspace-state').dataset.kind, 'error');
+  assert.match(ui.element('workspace-title').textContent, /Cannot load this interval/);
+  assert.doesNotMatch(ui.element('workspace-title').textContent, /No observations/);
+});
+
+
+test('stored history without Monitor entries points to History instead of claiming an empty database', async () => {
+  const ui = viewer();
+  ui.context.fetch = async path => ({ok: true, json: async () =>
+    path === '/api/tracks' ? {tracks: [{track_id:'run-a', count:3, first:point(0).time, last:point(1).time}]}
+      : path === '/api/monitor' ? {entries: []}
+        : path === '/api/sources' ? {sources: []}
+          : path.startsWith('/api/runs?') ? {tracks: [{track_id:'run-a', count:3, first:point(0).time, last:point(1).time}], next_cursor:null}
+            : {points:[], next_cursor:null}});
+  ui.exec('tracksBusy = false');
+  await ui.exec('refreshTracks()');
+  assert.match(ui.element('workspace-title').textContent, /No monitored positions/);
+  assert.equal(ui.element('workspace-action').textContent, 'Open History');
+  ui.element('workspace-action').events.click();
+  assert.equal(ui.exec('mode'), 'history');
+});
