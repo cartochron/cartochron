@@ -264,21 +264,63 @@ function updateHistoryFilter() {
   if (previous && placeScope.value !== previous) resetDatabasePlaceSearch();
 }
 
+function comparisonRunLabel(record) {
+  if (!record.first && !record.last && record.count === undefined)
+    return `Selected older recording · ${record.track_id}`;
+  const name = record.channel_label || record.source_label || record.channel_id || 'Unattributed recording';
+  const time = record.last ? localTime(record.last) : 'receipt time unknown';
+  const count = record.count === undefined ? '' : ` · ${record.count} fixes`;
+  // The suffix is a visual disambiguator, not an identity or proof of a phone.
+  return `${name} · ${time}${count} · …${record.track_id.slice(-8)}`;
+}
+function comparisonRun() {
+  // An explicitly entered older run is the fallback, not a guessed device ID.
+  return $('proximity-other').value.trim() || $('proximity-pick').value;
+}
+function updateComparisonSelection() {
+  const manual = $('proximity-other').value.trim();
+  const choice = $('proximity-pick').value;
+  const other = comparisonRun();
+  $('proximity-search').disabled = !selectedTrack || !other || other === selectedTrack;
+  $('proximity-current').textContent = selectedTrack
+    ? 'First recording · ' + (trackInfo() ? comparisonRunLabel(trackInfo()) : selectedTrack)
+    : 'First recording · Choose a recording in History.';
+  $('proximity-choice-help').textContent = manual
+    ? `Using exact ID: ${manual}. This is a run identifier, not proof of device identity.`
+    : choice ? `Selected recording: ${Array.from($('proximity-pick').children).find(option => option.value === choice)?.text || choice}`
+      : 'Choose a different recording above, or enter an exact older run ID.';
+}
 function updateProximityChoices() {
-  // Suggestions do not restrict the search: an older run ID can be entered
-  // explicitly, even when the History list is filtered to one source.
+  // Human-readable choices include recent *unfiltered* runs as well as runs
+  // paged in History. Exact older IDs remain possible without guessing labels.
   const input = $('proximity-other');
-  const previous = input.value;
+  if (input.value === selectedTrack) input.value = '';
+  const pick = $('proximity-pick');
+  const previous = pick.value;
   const seen = new Set();
   const choices = [...historyRunList, ...catalogue].filter(item => {
     if (item.track_id === selectedTrack || seen.has(item.track_id)) return false;
     seen.add(item.track_id);
     return true;
   });
-  $('proximity-known-runs').replaceChildren(...choices.map(item =>
-    new Option(runLabel(item), item.track_id)));
-  if (!previous || previous === selectedTrack) input.value = choices[0]?.track_id || '';
-  $('proximity-search').disabled = !selectedTrack || !input.value;
+  // Preserve an explicitly selected older run if it disappears from the
+  // bounded catalogue on refresh. Never silently switch the comparison.
+  if (previous && previous !== selectedTrack && !seen.has(previous))
+    choices.push({track_id: previous});
+  // Don't rebuild an unchanged native select on every polling tick: doing so
+  // can close an open OS dropdown while the operator is choosing a recording.
+  const options = choices.map(item => new Option(comparisonRunLabel(item), item.track_id));
+  function refreshOptions(control, next) {
+    const current = Array.from(control.children);
+    if (current.length !== next.length || current.some((option, i) =>
+      option.value !== next[i].value || option.text !== next[i].text))
+      control.replaceChildren(...next);
+  }
+  refreshOptions(pick, [new Option('Choose a recording…', ''), ...options]);
+  const wanted = previous && previous !== selectedTrack ? previous : '';
+  if (pick.value !== wanted) pick.value = wanted;
+  refreshOptions($('proximity-known-runs'), options);
+  updateComparisonSelection();
 }
 
 function clearWitnessTimeline() {
@@ -502,7 +544,7 @@ function resetRunProximity() {
   proximityLayer.clearLayers();
   $('proximity-results').replaceChildren();
   $('proximity-next').hidden = true;
-  $('proximity-search').disabled = !selectedTrack || !$('proximity-other').value;
+  updateComparisonSelection();
   investigationResult('proximity', 'ready', 'Choose two recording runs',
     'No comparison has run for the current selection.',
     'Choose the second run and select Find observation pairs.');
@@ -537,7 +579,7 @@ function showRunWitness(pair, origin = null) {
 async function searchRunProximity(more = false) {
   if (mode !== 'history' || $('proximity-panel').hidden) return;
   if (more && (!proximityCursor || proximityCount >= MAX_PROXIMITY_DISPLAY)) return;
-  const a = selectedTrack, b = $('proximity-other').value;
+  const a = selectedTrack, b = comparisonRun();
   if (!a || !b || a === b) {
     investigationResult('proximity', 'error', 'Select two different recording runs.',
       'No comparison has run.', 'Choose another run and try again.');
@@ -1810,8 +1852,18 @@ for (const id of ['place-scope', 'place-from', 'place-to'])
 $('place-search').addEventListener('click', () => searchRecordedPlace());
 $('place-next').addEventListener('click', () => searchRecordedPlace(true));
 $('place-proximity-window').addEventListener('change', renderPlaceProximity);
-$('proximity-other').addEventListener('change', resetRunProximity);
-$('proximity-other').addEventListener('input', resetRunProximity);
+$('proximity-pick').addEventListener('change', () => {
+  // Choosing a visible recording overrides any old exact-ID entry.
+  $('proximity-other').value = '';
+  $('proximity-advanced').open = false;
+  resetRunProximity();
+});
+function changedExactComparisonRun() {
+  if ($('proximity-other').value.trim()) $('proximity-pick').value = '';
+  resetRunProximity();
+}
+$('proximity-other').addEventListener('change', changedExactComparisonRun);
+$('proximity-other').addEventListener('input', changedExactComparisonRun);
 for (const id of ['proximity-radius', 'proximity-window', 'proximity-interval', 'from', 'to'])
   $(id).addEventListener('change', resetRunProximity);
 $('witness-annotation-load').addEventListener('click', () => loadWitnessAnnotations());

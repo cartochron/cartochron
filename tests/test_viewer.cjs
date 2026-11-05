@@ -1084,6 +1084,79 @@ test('comparison suggestions include unfiltered runs and allow explicit older ru
   assert.notEqual(ui.element('proximity-other').value, 'old-run-not-in-catalogue');
 });
 
+test('Across places offers named, explicit comparison choices, not a guessed run ID', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'focused');
+  ui.element('proximity-panel').hidden = false;
+  ui.context.options = [
+    {track_id: 'focused', channel_label: 'OnePlus', last: point(0).time, count: 5},
+    {track_id: 'another-uuid-12345678', channel_label: 'LG GPSD', last: point(1).time, count: 12},
+  ];
+  ui.exec('catalogue = options; updateProximityChoices()');
+  assert.equal(ui.element('proximity-pick').children.length, 2);
+  assert.equal(ui.element('proximity-pick').value, ''); // Never guess the other run.
+  assert.equal(ui.element('proximity-search').disabled, true);
+  assert.match(ui.element('proximity-current').textContent, /focused/);
+  assert.match(ui.element('proximity-pick').children[1].text, /LG GPSD/);
+  assert.match(ui.element('proximity-pick').children[1].text, /12 fixes/);
+  assert.equal(ui.element('proximity-pick').children[1].value, 'another-uuid-12345678');
+
+  ui.element('proximity-pick').value = 'another-uuid-12345678';
+  ui.element('proximity-pick').events.change();
+  assert.equal(ui.element('proximity-search').disabled, false);
+  assert.equal(ui.element('proximity-other').value, '');
+  assert.match(ui.element('proximity-choice-help').textContent, /LG GPSD/);
+  let url;
+  ui.context.fetch = async path => {url = path; return {ok: true, json: async () =>
+    ({pairs: [], scanned: 0, next_cursor: null, candidate_limited: false})};};
+  await ui.exec('searchRunProximity()');
+  assert.equal(new URL(url, 'http://local').searchParams.get('other_track_id'), 'another-uuid-12345678');
+});
+
+test('exact older run overrides the picker, while picking a named run clears it', () => {
+  const ui = viewer();
+  ui.render([], 'history', 'focused');
+  ui.context.options = [
+    {track_id: 'other-source', channel_label: 'LG', last: point(1).time, count: 3}
+  ];
+  ui.exec('catalogue = options; updateProximityChoices()');
+  ui.element('proximity-pick').value = 'other-source';
+  ui.element('proximity-pick').events.change();
+  ui.element('proximity-other').value = 'old-run-not-listed';
+  ui.element('proximity-other').events.input();
+  assert.equal(ui.element('proximity-pick').value, '');
+  assert.equal(ui.exec('comparisonRun()'), 'old-run-not-listed');
+  assert.match(ui.element('proximity-choice-help').textContent, /not proof of device identity/);
+  ui.element('proximity-pick').value = 'other-source';
+  ui.element('proximity-pick').events.change();
+  assert.equal(ui.element('proximity-other').value, '');
+  assert.equal(ui.exec('comparisonRun()'), 'other-source');
+  assert.equal(ui.element('proximity-advanced').open, false);
+});
+
+test('refreshed comparison options preserve operator choice and cannot choose the focused run', () => {
+  const ui = viewer();
+  ui.render([], 'history', 'focused');
+  ui.context.options = [
+    {track_id: 'second', channel_label: 'LG', last: point(1).time, count: 3},
+    {track_id: 'third', channel_label: 'Third', last: point(2).time, count: 9},
+  ];
+  ui.exec('catalogue = options; updateProximityChoices()');
+  ui.element('proximity-pick').value = 'second';
+  ui.element('proximity-pick').events.change();
+  ui.exec('catalogue = []; historyRunList = []; updateProximityChoices()');
+  assert.equal(ui.element('proximity-pick').value, 'second');
+  assert.equal(ui.element('proximity-pick').children.length, 2);
+  assert.equal(ui.exec('comparisonRun()'), 'second');
+  const optionNodes = ui.element('proximity-pick').children;
+  ui.exec('updateProximityChoices()');
+  assert.equal(ui.element('proximity-pick').children, optionNodes,
+    'unchanged catalogue must not rebuild a native dropdown during selection');
+  ui.exec('selectedTrack = "second"; updateProximityChoices()');
+  assert.equal(ui.element('proximity-pick').value, '');
+  assert.equal(ui.element('proximity-search').disabled, true);
+});
+
 test('older comparison pages respect the cumulative display limit', async () => {
   const ui = viewer();
   ui.render([], 'history', 'run-a');
