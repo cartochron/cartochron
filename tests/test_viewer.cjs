@@ -18,7 +18,7 @@ function viewer() {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', max: '', hidden: false, textContent: '', disabled: false, children: [],
-      events: {}, attributes: {}, addEventListener(name, fn) { this.events[name] = fn; },
+      events: {}, attributes: {}, dataset: {}, addEventListener(name, fn) { this.events[name] = fn; },
       setAttribute(name, value) { this.attributes[name] = String(value); },
       getAttribute(name) { return this.attributes[name] ?? null; },
       focus() { document.activeElement = this; },
@@ -697,7 +697,7 @@ test('recorded place search is explicit, paged and independent of loaded fixes',
   assert.match(urls[1], /before=123/);
   assert.equal(ui.element('place-db-results').children.length, 2);
   assert.equal(ui.element('place-next').hidden, true);
-  assert.match(ui.element('place-db-status').textContent, /Search complete/);
+  assert.match(ui.element('place-db-coverage').textContent, /Search complete/);
   assert.equal(ui.element('place-results').children.length, 1);
   assert.match(urls[0], /^\/api\/place\/observations\?/);
 });
@@ -714,7 +714,7 @@ test('place search does not mistake an empty page for complete coverage', async 
   await ui.exec('searchRecordedPlace()');
   assert.equal(ui.element('place-db-results').children.length, 0);
   assert.equal(ui.element('place-next').hidden, false);
-  assert.match(ui.element('place-db-status').textContent, /Older candidates remain/);
+  assert.match(ui.element('place-db-coverage').textContent, /Older candidates remain/);
 });
 
 test('changing the selected place invalidates a pending database response', async () => {
@@ -730,7 +730,7 @@ test('changing the selected place invalidates a pending database response', asyn
   finish({ok: true, json: async () => ({points: [{...point(0), track_id: 'old'}], next_cursor: null})});
   await pending;
   assert.equal(ui.element('place-db-results').children.length, 0);
-  assert.match(ui.element('place-db-status').textContent, /Search recorded history/);
+  assert.match(ui.element('place-db-next-step').textContent, /Search recorded history/);
   assert.equal(ui.element('place-search').disabled, false);
 });
 
@@ -758,7 +758,7 @@ test('place query converts local receipt bounds, filters source and resets on ch
   ui.element('place-scope').value = 'channel:gpsd.oneplus';
   ui.element('place-scope').events.change();
   assert.equal(ui.element('place-next').hidden, true);
-  assert.match(ui.element('place-db-status').textContent, /Search recorded history/);
+  assert.match(ui.element('place-db-next-step').textContent, /Search recorded history/);
   await ui.exec('searchRecordedPlace()');
   const second = new URL(urls[1], 'http://localhost').searchParams;
   assert.equal(second.get('channel_id'), 'gpsd.oneplus');
@@ -956,7 +956,7 @@ test('cross-run search finds witnesses from the database, not just loaded Histor
   assert.equal(ui.exec('overlayLayers.size'), 0); // No fake joined path.
   await ui.exec('searchRunProximity(true)');
   assert.match(requests[1], /before=1800000000000%3A77/);
-  assert.match(ui.element('proximity-status').textContent, /candidate.*may be missing/);
+  assert.match(ui.element('proximity-coverage').textContent, /candidate.*may be missing/);
   assert.equal(ui.element('proximity-next').hidden, true);
   assert.equal(ui.element('proximity-results').children.length, 1);
 });
@@ -1410,4 +1410,102 @@ test('viewing map without place-pick mode cannot accidentally change a place que
   ui.map.events.click({latlng: {lat: 50, lng: 14}});
   assert.equal(ui.exec('placeSelection.lat'), 47);
   assert.equal(ui.exec('placeSelection.lon'), 28);
+});
+
+test('place results distinguish empty completed searches from empty partial pages', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  const responses = [
+    {points: [], next_cursor: '32'},
+    {points: [], next_cursor: null}
+  ];
+  let page = 0;
+  ui.context.fetch = async () => ({ok: true, json: async () => responses[page++]});
+  await ui.exec('searchRecordedPlace()');
+  assert.equal(ui.element('place-db-summary').dataset.state, 'partial');
+  assert.match(ui.element('place-db-status').textContent, /No matching recorded fixes/);
+  assert.match(ui.element('place-db-coverage').textContent, /Older candidates remain/);
+  assert.match(ui.element('place-db-next-step').textContent, /empty page is not proof/);
+  assert.equal(ui.element('place-next').hidden, false);
+  ui.element('place-next').focus();
+  await ui.exec('searchRecordedPlace(true)');
+  assert.equal(ui.element('place-db-summary').dataset.state, 'complete');
+  assert.match(ui.element('place-db-coverage').textContent, /Search complete.*radius, scope/);
+  assert.match(ui.element('place-db-next-step').textContent, /wider radius/);
+  assert.equal(ui.element('place-next').hidden, true);
+  assert.equal(ui.context.document.activeElement, ui.element('place-search'));
+});
+
+test('failed older place page preserves prior fixes and a retry path', async () => {
+  const ui = viewer();
+  ui.render([], 'history');
+  ui.element('place-panel').hidden = false;
+  ui.map.events.click({latlng: {lat: 47, lng: 28}});
+  let calls = 0;
+  ui.context.fetch = async () => {
+    calls++;
+    if (calls === 2) throw new Error('network');
+    return {ok: true, json: async () => calls === 1
+      ? {points: [{...point(0), track_id: 'run-a', distance_m: 3}], next_cursor: '19'}
+      : {points: [{...point(1), track_id: 'run-a', distance_m: 5}], next_cursor: null}};
+  };
+  await ui.exec('searchRecordedPlace()');
+  ui.element('place-next').focus();
+  await ui.exec('searchRecordedPlace(true)');
+  assert.equal(ui.element('place-db-summary').dataset.state, 'error');
+  assert.equal(ui.element('place-db-results').children.length, 1);
+  assert.equal(ui.element('place-next').hidden, false);
+  assert.match(ui.element('place-db-next-step').textContent, /retry this page/);
+  assert.equal(ui.context.document.activeElement, ui.element('place-next'));
+  await ui.exec('searchRecordedPlace(true)');
+  assert.equal(ui.element('place-db-results').children.length, 2);
+  assert.equal(ui.element('place-db-summary').dataset.state, 'complete');
+});
+
+test('across places distinguishes exhausted anchors from capped comparison work', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  let limited = true;
+  ui.context.fetch = async () => ({ok: true, json: async () =>
+    ({pairs: [], scanned: 200, next_cursor: null, candidate_limited: limited})});
+  await ui.exec('searchRunProximity()');
+  assert.equal(ui.element('proximity-summary').dataset.state, 'partial');
+  assert.match(ui.element('proximity-status').textContent, /0 candidate pairs/);
+  assert.match(ui.element('proximity-coverage').textContent, /candidate matches may be missing/);
+  assert.match(ui.element('proximity-next-step').textContent, /Narrow the time window/);
+  limited = false;
+  await ui.exec('searchRunProximity()');
+  assert.equal(ui.element('proximity-summary').dataset.state, 'complete');
+  assert.match(ui.element('proximity-coverage').textContent, /Anchor search reached its end/);
+  assert.match(ui.element('proximity-next-step').textContent, /wider receipt-time window/);
+});
+
+test('across places retains retry and keyboard focus at the last older page', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  let calls = 0;
+  ui.context.fetch = async () => {
+    calls++;
+    if (calls === 2) throw new Error('network');
+    return {ok: true, json: async () => ({pairs: [], scanned: 5,
+      next_cursor: calls === 1 ? '70' : null, candidate_limited: false})};
+  };
+  await ui.exec('searchRunProximity()');
+  assert.equal(ui.element('proximity-next').hidden, false);
+  ui.element('proximity-next').focus();
+  await ui.exec('searchRunProximity(true)');
+  assert.equal(ui.element('proximity-summary').dataset.state, 'error');
+  assert.equal(ui.element('proximity-next').hidden, false);
+  assert.match(ui.element('proximity-next-step').textContent, /retry this page/);
+  assert.equal(ui.context.document.activeElement, ui.element('proximity-next'));
+  await ui.exec('searchRunProximity(true)');
+  assert.equal(ui.element('proximity-next').hidden, true);
+  assert.equal(ui.context.document.activeElement, ui.element('proximity-search'));
+  assert.equal(ui.element('proximity-summary').dataset.state, 'complete');
 });

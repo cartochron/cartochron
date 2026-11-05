@@ -90,6 +90,14 @@ function status(message) {
   $('status-alert').textContent = /unavailable|failed|invalid|error|rejected|HTTP [45]\d\d/i.test(message)
     ? message : '';
 }
+// One consistent answer structure for evidence searches. The finding is announced;
+// limitations and the next action remain readable without a live-region monologue.
+function investigationResult(prefix, state, finding, coverage, next) {
+  $(prefix + '-status').textContent = finding;
+  $(prefix + '-coverage').textContent = coverage ? 'Coverage · ' + coverage : '';
+  $(prefix + '-next-step').textContent = next ? 'Next · ' + next : '';
+  $(prefix + '-summary').dataset.state = state;
+}
 function localTime(value) { return new Date(value).toLocaleString(); }
 function localInput(value) {
   const d = new Date(value);
@@ -423,7 +431,9 @@ function resetRunProximity() {
   $('proximity-results').replaceChildren();
   $('proximity-next').hidden = true;
   $('proximity-search').disabled = !selectedTrack || !$('proximity-other').value;
-  $('proximity-status').textContent = 'Choose two recording runs and search their stored observations.';
+  investigationResult('proximity', 'ready', 'Choose two recording runs',
+    'No comparison has run for the current selection.',
+    'Choose the second run and select Find observation pairs.');
 }
 
 function showRunWitness(pair) {
@@ -456,7 +466,8 @@ async function searchRunProximity(more = false) {
   if (more && (!proximityCursor || proximityCount >= MAX_PROXIMITY_DISPLAY)) return;
   const a = selectedTrack, b = $('proximity-other').value;
   if (!a || !b || a === b) {
-    $('proximity-status').textContent = 'Select two different recording runs.';
+    investigationResult('proximity', 'error', 'Select two different recording runs.',
+      'No comparison has run.', 'Choose another run and try again.');
     return;
   }
   const query = new URLSearchParams({track_id: a, other_track_id: b,
@@ -471,15 +482,18 @@ async function searchRunProximity(more = false) {
       if (to) query.set('to', to);
     }
   } catch (error) {
-    $('proximity-status').textContent = 'Invalid receipt-time interval: ' + error.message;
+    investigationResult('proximity', 'error', 'Invalid receipt-time interval: ' + error.message,
+      'No comparison has run.', 'Correct From/To or disable Use History From/To.');
     return;
   }
+  const pageWasFocused = more && document.activeElement === $('proximity-next');
   if (more) query.set('before', proximityCursor);
   else resetRunProximity();
   const token = ++proximityRevision;
   $('proximity-search').disabled = true;
   $('proximity-next').hidden = true;
-  $('proximity-status').textContent = 'Comparing stored observations…';
+  investigationResult('proximity', 'loading', 'Comparing stored observations…',
+    'Search coverage is not yet known.', '');
   try {
     const result = await getJSON('/api/proximity?' + query);
     if (token !== proximityRevision || mode !== 'history') return;
@@ -515,17 +529,36 @@ async function searchRunProximity(more = false) {
     }
     const capped = proximityCount >= MAX_PROXIMITY_DISPLAY;
     $('proximity-next').hidden = !proximityCursor || capped;
-    $('proximity-status').textContent = `${proximityCount} candidate pair${proximityCount === 1 ? '' : 's'} from `
-      + `${proximityScanned} examined anchor fixes` + (proximityCursor
-        ? '; older anchors remain unexamined' : '; anchor search reached its end')
-      + (proximityLimited ? '; dense time windows were capped: matches may be missing' : '')
-      + (capped ? '; display limit reached' : '')
-      + '. One witness per anchor, not exhaustive pair enumeration; no inference of encounters.';
+    const coverage = [
+      `${proximityScanned} anchor fixes examined`,
+      proximityCursor ? 'Partial search: older anchors remain unexamined'
+        : 'Anchor search reached its end at query time',
+      proximityLimited ? 'Dense time windows were capped: candidate matches may be missing' : '',
+      capped ? '100-pair display limit reached' : ''
+    ].filter(Boolean).join(' · ');
+    const next = capped ? 'Narrow the time interval or comparison limits and search again.'
+      : proximityCursor ? 'Select Continue into older fixes to extend the search.'
+        : proximityLimited ? 'Narrow the time window to reduce capped candidates, then search again.'
+        : proximityCount ? 'Select Map pair or Inspect timeline to examine supporting fixes.'
+          : 'Try a wider receipt-time window, distance, or a different pair of runs.';
+    investigationResult('proximity', capped || proximityCursor || proximityLimited ? 'partial' : 'complete',
+      `${proximityCount} candidate pair${proximityCount === 1 ? '' : 's'} found`,
+      coverage + '. One witness per anchor, not exhaustive pair enumeration; no inference of encounters.',
+      next);
   } catch (error) {
-    if (token === proximityRevision)
-      $('proximity-status').textContent = 'Cross-run comparison unavailable: ' + error.message;
+    if (token === proximityRevision) {
+      $('proximity-next').hidden = !proximityCursor || proximityCount >= MAX_PROXIMITY_DISPLAY;
+      investigationResult('proximity', 'error', 'Cross-run comparison unavailable: ' + error.message,
+        'Search coverage is unknown; any previously retrieved rows may be incomplete.',
+        proximityCursor ? 'Select Continue into older fixes to retry this page.'
+          : 'Check the receiver and retry the comparison.');
+    }
   } finally {
-    if (token === proximityRevision) $('proximity-search').disabled = false;
+    if (token === proximityRevision) {
+      $('proximity-search').disabled = false;
+      if (pageWasFocused)
+        ($('proximity-next').hidden ? $('proximity-search') : $('proximity-next')).focus();
+    }
   }
 }
 
@@ -1180,9 +1213,11 @@ function resetDatabasePlaceSearch() {
   $('place-proximity-status').textContent = 'Search recorded history to compare receipt times.';
   $('place-next').hidden = true;
   $('place-search').disabled = !placeSelection || mode !== 'history';
-  $('place-db-status').textContent = placeSelection
-    ? 'Search recorded history to examine all runs, not just loaded points.'
-    : 'Select a place to search across all recorded runs.';
+  investigationResult('place-db', 'ready', placeSelection
+    ? 'Ready to search this place' : 'Choose a place to search',
+    'No recorded-history search has run for this location and filters.',
+    placeSelection ? 'Select Search recorded history to examine all runs, not only loaded points.'
+      : 'Choose a place on the map, then select Search recorded history.');
 }
 
 function groupedMatchingFixes(fixes) {
@@ -1344,9 +1379,11 @@ async function searchRecordedPlace(more = false) {
     if (scope.startsWith('channel:')) query.set('channel_id', scope.slice(8));
     if (scope.startsWith('source:')) query.set('source_id', scope.slice(7));
   } catch (error) {
-    $('place-db-status').textContent = 'Invalid place search filter: ' + error.message;
+    investigationResult('place-db', 'error', 'Invalid place search filter: ' + error.message,
+      'No new search was performed.', 'Correct the time or scope filter and search again.');
     return;
   }
+  const pageWasFocused = more && document.activeElement === $('place-next');
   if (more) query.set('before', placeSearchCursor);
   else {
     placeSearchCursor = null;
@@ -1359,7 +1396,8 @@ async function searchRecordedPlace(more = false) {
   }
   $('place-search').disabled = true;
   $('place-next').hidden = true;
-  $('place-db-status').textContent = 'Searching recorded observations…';
+  investigationResult('place-db', 'loading', 'Searching recorded observations…',
+    'The result is not yet known.', '');
   try {
     const page = await getJSON('/api/place/observations?' + query);
     if (request !== placeSearchRevision) return;
@@ -1378,17 +1416,36 @@ async function searchRecordedPlace(more = false) {
     const moreAvailable = Boolean(page.next_cursor);
     const capped = placeSearchCount >= MAX_PLACE_DISPLAY;
     $('place-next').hidden = !moreAvailable || capped;
-    $('place-db-status').textContent = `${placeSearchCount} matching recorded fixes shown, newest ingested first. `
-      + (capped ? 'Display limit reached; no claim of complete coverage.'
-        : moreAvailable ? 'Older candidates remain; this is not a complete search.'
-        : 'Search complete for the selected place at this point in time.')
-      + ' Proximity is not proof of continuous presence.';
+    const finding = placeSearchCount
+      ? `${placeSearchCount} matching recorded fix${placeSearchCount === 1 ? '' : 'es'} found`
+      : 'No matching recorded fixes in retrieved pages';
+    const coverage = capped
+      ? 'Partial display: 500-fix limit reached. Older results may be missing.'
+      : moreAvailable ? 'Partial search: Older candidates remain unexamined.'
+        : 'Search complete for the chosen radius, scope and receipt-time interval at query time.';
+    const next = capped
+      ? 'Narrow the receipt-time interval or source filter and search again.'
+      : moreAvailable
+        ? 'Select Search older records. An empty page is not proof of no matches.'
+        : placeSearchCount
+          ? 'Explore matching-fix groups and original observations below.'
+          : 'Try a wider radius, time interval or source scope and search again.';
+    investigationResult('place-db', capped || moreAvailable ? 'partial' : 'complete',
+      finding, coverage + ' Reported proximity does not prove continuous presence.', next);
   } catch (error) {
-    if (request === placeSearchRevision)
-      $('place-db-status').textContent = 'Recorded history search failed: ' + error.message;
+    if (request === placeSearchRevision) {
+      $('place-next').hidden = !placeSearchCursor || placeSearchCount >= MAX_PLACE_DISPLAY;
+      investigationResult('place-db', 'error', 'Recorded history search failed: ' + error.message,
+        'Search coverage is unknown; any previously retrieved rows may be incomplete.',
+        placeSearchCursor ? 'Select Search older records to retry this page.'
+          : 'Check the receiver and try Search recorded history again.');
+    }
   } finally {
-    if (request === placeSearchRevision)
+    if (request === placeSearchRevision) {
       $('place-search').disabled = false;
+      if (pageWasFocused)
+        ($('place-next').hidden ? $('place-search') : $('place-next')).focus();
+    }
   }
 }
 

@@ -86,6 +86,13 @@
     .track-layer span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #witness-annotation-command {white-space:pre-wrap;overflow-wrap:anywhere}
     #witness-annotation-results li {white-space:pre-wrap;overflow-wrap:anywhere}
+    .result-brief {margin:12px 0 16px;padding:10px 0;border-block:1px solid #385061}
+    .result-brief .result-heading {display:block;font-size:14px;font-weight:650;color:#e8f0f5;margin:0 0 4px}
+    .result-brief .result-coverage {color:var(--quiet);font-size:12px;margin:5px 0}
+    .result-brief .result-next {color:#cde6f6;font-size:12px;margin:5px 0 0}
+    .result-brief[data-state=partial] .result-coverage {color:#f1d5a9}
+    .result-brief[data-state=error] .result-heading {color:#efb9b7}
+    .result-brief .result-next:empty,.result-brief .result-coverage:empty {display:none}
     .analysis-drawer small {display:block;color:var(--quiet);margin-top:10px}
     #inspect,#time-panel {flex:none;padding:8px 15px;background:var(--surface);border-top:1px solid #385061;
       display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -205,9 +212,13 @@
       </div>
       <div class="controls">
         <button id="place-search" type="button" disabled>Search recorded history</button>
-        <button id="place-next" type="button" hidden>Older search page</button>
+        <button id="place-next" type="button" hidden>Search older records</button>
       </div>
-      <p id="place-db-status" role="status">Select a place to search across recorded runs.</p>
+      <section class="result-brief" id="place-db-summary" aria-label="Recorded place search result" data-state="ready">
+        <strong id="place-db-status" class="result-heading" role="status">Choose a place to search</strong>
+        <p id="place-db-coverage" class="result-coverage">Coverage · No database search has run.</p>
+        <p id="place-db-next-step" class="result-next">Next · Choose a place on the map, then search recorded history.</p>
+      </section>
       <details class="place-filters"><summary>Limit search by source or time (optional)</summary>
         <div class="controls" aria-label="Recorded place search filters">
           <label>Scope <select id="place-scope" aria-label="Place search source or channel">
@@ -251,9 +262,13 @@
         </select></label>
         <label><input id="proximity-interval" type="checkbox">Use History From/To</label>
         <button id="proximity-search" type="button">Find observation pairs</button>
-        <button id="proximity-next" type="button" hidden>Older candidate page</button>
+        <button id="proximity-next" type="button" hidden>Continue into older fixes</button>
       </div>
-      <p id="proximity-status" role="status">Choose a second recorded run; search does not depend on loaded map points.</p>
+      <section class="result-brief" id="proximity-summary" aria-label="Two-run comparison result" data-state="ready">
+        <strong id="proximity-status" class="result-heading" role="status">Choose a second recording</strong>
+        <p id="proximity-coverage" class="result-coverage">Coverage · No comparison has run.</p>
+        <p id="proximity-next-step" class="result-next">Next · Choose another run and select Find observation pairs.</p>
+      </section>
       <ol id="proximity-results" aria-label="Cross-run spatial and temporal observation pairs"></ol>
       <section id="witness-timeline" hidden aria-label="Evidence timeline around selected observation pair">
         <strong>Evidence timeline · selected pair</strong>
