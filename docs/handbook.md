@@ -276,9 +276,12 @@ the interface) and a receipt-time window (1, 5 or 15 minutes). Click
 which observations from the first run become anchors. This search reads the
 stored database, not the browser's loaded route dots.
 
-Each candidate supplies **two specific fixes** and their original run IDs,
-source/channel claims, receipt times, time difference and reported-coordinate
-distance. Click **Map pair** to frame their reported positions. Two coincident
+Each candidate leads with the two descriptive channel/source names, the
+**receipt-time difference** and the **distance between reported coordinates**.
+Expand **Exact evidence and provenance** to inspect both original run IDs,
+fix IDs, clock values, producer assertions and available accuracy. These
+identifiers are hidden from the quick-reading line, not removed from the
+record. Click **Map pair** to frame their reported positions. Two coincident
 reports share one visual symbol with both identifiers available. There is no
 line between them: that line would be a movement assertion we did not observe.
 
@@ -291,6 +294,12 @@ receipt time and displays the two selected fixes, their immediately adjacent
 recorded fixes within the retrieved window, and gaps greater than ten minutes
 between consecutive retrieved fixes **within the same run**. **Map fix** shows
 one original observation without drawing a connecting line.
+
+Timeline rows distinguish **Selected witness**, preceding/following fixes and
+recorded gaps at a glance. Exact IDs and measurements are available in each
+row's disclosure; choosing **Map fix** does not join any paths. Saved operator
+notes display their own text first, with annotation ID and linked fix IDs
+behind the same disclosure. Notes are interpretations, not measurements.
 
 The timeline summarizes, rather than lists, every retrieved fix; History and
 the HTTP point-history API still provide the individual observations. If
