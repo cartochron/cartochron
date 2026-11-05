@@ -97,7 +97,10 @@ function viewer() {
         get textContent() { return this._text + this.children.map(child => child.textContent).join(''); },
         set textContent(value) { this._text = String(value); this.children = []; },
         appendChild(child) { this.children.push(child); return child; },
-        addEventListener(name, fn) { this.events[name] = fn; }
+        addEventListener(name, fn) { this.events[name] = fn; },
+        // Native evidence actions can take focus after a map/results handoff.
+        focus() { document.activeElement = this; },
+        scrollIntoView() { this.scrolledIntoView = true; }
       }; },
     },
     L: {
@@ -1548,4 +1551,96 @@ test('across places retains retry and keyboard focus at the last older page', as
   assert.equal(ui.element('proximity-next').hidden, true);
   assert.equal(ui.context.document.activeElement, ui.element('proximity-search'));
   assert.equal(ui.element('proximity-summary').dataset.state, 'complete');
+});
+
+test('Map pair reveals the evidence and returns to its exact comparison card', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('analysis-drawer').hidden = false;
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  const a = {...point(0), track_id:'run-a', channel_id:'a'};
+  const b = {...point(1), track_id:'run-b', channel_id:'b'};
+  ui.context.fetch = async () => ({ok:true, json:async () => ({pairs:[{
+    a, b, identity_kind:'channel', distance_m:20, receipt_delta_ms:1000
+  }], scanned:1, next_cursor:null, candidate_limited:false})});
+  await ui.exec('searchRunProximity()');
+  const row = ui.element('proximity-results').children[0];
+  const mapPair = row.children[3].children[0];
+  mapPair.events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('map-return').hidden, false);
+  assert.equal(ui.element('return-results').textContent, 'Back to comparison');
+  assert.equal(ui.context.document.activeElement, ui.element('return-results'));
+  assert.equal(ui.exec('proximityLayer.layers.length'), 2);
+  assert.equal(ui.exec('overlayLayers.size'), 0); // Never invent a connected route.
+  ui.element('return-results').events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, false);
+  assert.equal(ui.element('map-return').hidden, true);
+  assert.equal(ui.context.document.activeElement, mapPair);
+  assert.equal(ui.element('proximity-results').children[0], row);
+  assert.equal(ui.exec('proximityCount'), 1); // Search wasn't repeated.
+});
+
+test('Inspect timeline moves focus, keeps evidence, and returns to the same pair', async () => {
+  const ui = viewer();
+  ui.render([], 'history', 'run-a');
+  ui.element('analysis-drawer').hidden = false;
+  ui.element('proximity-panel').hidden = false;
+  ui.element('proximity-other').value = 'run-b';
+  const a = {...point(0), track_id:'run-a', channel_label:'OnePlus'};
+  const b = {...point(1), track_id:'run-b', channel_label:'LG'};
+  let requests = 0;
+  ui.context.fetch = async url => {
+    requests++;
+    return {ok:true, json:async () => url.startsWith('/api/proximity?')
+      ? {pairs:[{a,b,identity_kind:'channel',distance_m:35,receipt_delta_ms:1000}],
+        scanned:1,next_cursor:null,candidate_limited:false}
+      : {track_id: new URL(url,'http://localhost').searchParams.get('track_id'),
+        points:[url.includes('run-a') ? a : b], truncated:false,next_cursor:null}};
+  };
+  await ui.exec('searchRunProximity()');
+  const row = ui.element('proximity-results').children[0];
+  const inspect = row.children[3].children[1];
+  const heading = ui.element('witness-timeline-heading');
+  heading.scrollIntoView = () => {heading.scrolled = true;};
+  inspect.events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 3);
+  assert.equal(heading.scrolled, true);
+  assert.equal(ui.context.document.activeElement, heading);
+  assert.match(ui.element('witness-pair-label').textContent, /OnePlus ↔ LG/);
+  assert.match(ui.element('witness-timeline-status').textContent, /Loaded A/);
+  ui.element('witness-back').events.click();
+  assert.equal(ui.context.document.activeElement, inspect);
+  assert.equal(ui.element('witness-timeline').hidden, false); // Context preserved.
+  assert.equal(ui.element('proximity-results').children[0], row);
+  inspect.events.click();
+  assert.equal(requests, 3); // Returning to the same pair does not refetch history.
+  assert.equal(ui.context.document.activeElement, heading);
+  const witnessRow = ui.element('witness-timeline-events').children.find(row =>
+    row.textContent.includes('Selected witness'));
+  const mapFix = witnessRow.children[3].children[0];
+  mapFix.events.click();
+  assert.equal(ui.element('analysis-drawer').hidden, true);
+  assert.equal(ui.element('return-results').textContent, 'Back to timeline');
+  assert.equal(ui.exec('proximityLayer.layers.length'), 1);
+  ui.element('return-results').events.click();
+  assert.equal(ui.context.document.activeElement, mapFix);
+  assert.equal(ui.element('witness-timeline').hidden, false);
+  assert.equal(requests, 3);
+});
+
+test('stale evidence action is not focused after its tool was discarded', () => {
+  const ui = viewer();
+  ui.element('proximity-panel').hidden = false;
+  ui.element('analysis-drawer').hidden = false;
+  const oldButton = ui.context.document.createElement('button');
+  ui.context.origin = oldButton;
+  ui.exec('showMapInsteadOfDrawer(origin)');
+  oldButton.isConnected = false;
+  ui.element('return-results').events.click();
+  assert.equal(ui.context.document.activeElement, ui.element('drawer-map'));
+  ui.exec('closeAnalysisDrawer({restoreFocus:false})');
+  assert.equal(ui.exec('mapReturnTarget'), null);
 });

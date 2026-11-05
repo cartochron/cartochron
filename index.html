@@ -84,6 +84,10 @@
     #layers-list {display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
     .track-layer {border:1px solid var(--border);border-radius:7px;padding:6px 8px;max-width:100%}
     .track-layer span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .witness-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+      margin-top:15px;padding-top:12px;border-top:1px solid var(--border)}
+    .witness-identity {color:var(--quiet);font-size:12px;overflow-wrap:anywhere}
+    #witness-timeline-heading:focus-visible {outline:2px solid #a4dcff;outline-offset:3px}
     #witness-annotation-command {white-space:pre-wrap;overflow-wrap:anywhere}
     #witness-annotation-results li {white-space:pre-wrap;overflow-wrap:anywhere}
     /* Scan first; exact IDs, clocks and provenance remain one disclosure away. */
@@ -284,7 +288,11 @@
       </section>
       <ol id="proximity-results" aria-label="Cross-run spatial and temporal observation pairs"></ol>
       <section id="witness-timeline" hidden aria-label="Evidence timeline around selected observation pair">
-        <strong>Evidence timeline · selected pair</strong>
+        <div class="witness-heading">
+          <strong id="witness-timeline-heading" tabindex="-1">Evidence timeline · selected pair</strong>
+          <button id="witness-back" type="button">Back to comparison results</button>
+        </div>
+        <p id="witness-pair-label" class="witness-identity"></p>
         <p id="witness-timeline-status" role="status"></p>
         <ol id="witness-timeline-events" aria-label="Chronological witness, adjacent fixes and recorded gaps"></ol>
         <div id="witness-annotation-panel">

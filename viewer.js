@@ -36,6 +36,7 @@ const MAX_PROXIMITY_DISPLAY = 100;
 const WITNESS_CONTEXT_MS = 15 * 60 * 1000;
 const WITNESS_CONTEXT_LIMIT = 1000; // One bounded history page per run, never a complete-history claim.
 let witnessTimelineRevision = 0;
+let timelineReturnTarget = null; // Button that opened the exact witness pair.
 let witnessAnnotationPair = null;
 let witnessAnnotationCursor = null;
 let witnessAnnotationRevision = 0;
@@ -58,6 +59,7 @@ let initialMonitorFit = 'visible';
 const monitorMarkers = new Map(); // Reconcile by reported position; preserve popups on refresh.
 let pickingPlace = false;
 let viewingMap = false;
+let mapReturnTarget = null; // Exact evidence action, when returning from the map.
 let cameraMoving = false;
 let historyRunList = [];
 let historyLoaded = false;
@@ -131,7 +133,7 @@ function evidenceCard(title, summary, provenance = [], actions = []) {
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = action.label;
-      button.addEventListener('click', action.run);
+      button.addEventListener('click', () => action.run(button));
       controls.appendChild(button);
     }
     li.appendChild(controls);
@@ -281,6 +283,7 @@ function updateProximityChoices() {
 
 function clearWitnessTimeline() {
   witnessTimelineRevision++;
+  timelineReturnTarget = null;
   $('witness-timeline').hidden = true;
   $('witness-timeline-events').replaceChildren();
   $('witness-timeline-status').textContent = '';
@@ -379,7 +382,7 @@ function witnessIdentity(point) {
     .filter(Boolean).join(' · ') || 'unattributed';
 }
 
-function mapWitnessFix(side, point) {
+function mapWitnessFix(side, point, origin = null) {
   // A standalone observation marker; never connect the two sources with a line.
   proximityLayer.clearLayers();
   const label = document.createElement('span');
@@ -390,13 +393,35 @@ function mapWitnessFix(side, point) {
     fillColor: side === 'a' ? '#57b9ef' : '#8724d5', fillOpacity: 0.95
   }).bindTooltip(label).on('click', () => L.popup()
     .setLatLng([point.lat, point.lon]).setContent(label).openOn(map)).addTo(proximityLayer);
+  revealEvidenceOnMap(origin, 'Back to timeline');
   fitObservations([point]);
 }
 
-async function inspectWitnessTimeline(pair) {
+function focusWitnessTimeline() {
+  $('witness-timeline-heading').scrollIntoView?.({block: 'start'});
+  $('witness-timeline-heading').focus();
+}
+
+function backToWitnessPair() {
+  const target = timelineReturnTarget?.isConnected === false ? null : timelineReturnTarget;
+  (target || $('proximity-search')).focus();
+}
+
+async function inspectWitnessTimeline(pair, origin = null) {
+  // Revisiting the same selected pair must not discard loaded context or notes.
+  if (witnessAnnotationPair?.[0] === pair.a.id && witnessAnnotationPair?.[1] === pair.b.id
+      && !$('witness-timeline').hidden) {
+    if (origin) timelineReturnTarget = origin;
+    focusWitnessTimeline();
+    return;
+  }
   clearWitnessTimeline();
+  timelineReturnTarget = origin;
   const token = witnessTimelineRevision;
   $('witness-timeline').hidden = false;
+  $('witness-pair-label').textContent = `${evidenceName(pair.a)} ↔ ${evidenceName(pair.b)}`
+    + ` · recorded fixes #${pair.a.id} and #${pair.b.id}`;
+  focusWitnessTimeline();
   $('witness-timeline-status').textContent = 'Loading recorded context from both runs…';
   // This pair is a derived comparison; its exact fix IDs are stored evidence.
   if (![pair.a.id, pair.b.id].every(id => Number.isSafeInteger(id) && id > 0)
@@ -446,9 +471,9 @@ async function inspectWitnessTimeline(pair) {
           [evidenceFix({...event.point, channel_label: pair[event.side].channel_label,
             channel_id: pair[event.side].channel_id, source_label: pair[event.side].source_label,
             source_id: pair[event.side].source_id}, side)],
-          [{label: 'Map fix', run: () => mapWitnessFix(event.side, {...event.point,
+          [{label: 'Map fix', run: button => mapWitnessFix(event.side, {...event.point,
             channel_label: pair[event.side].channel_label, channel_id: pair[event.side].channel_id,
-            source_label: pair[event.side].source_label, source_id: pair[event.side].source_id})}]));
+            source_label: pair[event.side].source_label, source_id: pair[event.side].source_id}, button)}]));
       }
     }
     const partial = a.truncated || b.truncated || a.next_cursor || b.next_cursor;
@@ -483,7 +508,7 @@ function resetRunProximity() {
     'Choose the second run and select Find observation pairs.');
 }
 
-function showRunWitness(pair) {
+function showRunWitness(pair, origin = null) {
   // Two reported fixes, never a line suggesting movement or an encounter.
   proximityLayer.clearLayers();
   const locations = new Map();
@@ -505,6 +530,7 @@ function showRunWitness(pair) {
     }).bindTooltip(label).on('click', () => L.popup()
       .setLatLng([first.lat, first.lon]).setContent(label).openOn(map)).addTo(proximityLayer);
   }
+  revealEvidenceOnMap(origin, 'Back to comparison');
   fitObservations([pair.a, pair.b]);
 }
 
@@ -557,8 +583,8 @@ async function searchRunProximity(more = false) {
           + `${pair.distance_m} m between reported positions`,
         [kind, evidenceFix(pair.a, 'A'), evidenceFix(pair.b, 'B'),
           'Nearby reports do not establish a meeting or continuous presence.'],
-        [{label: 'Map pair', run: () => showRunWitness(pair)},
-          {label: 'Inspect timeline', run: () => inspectWitnessTimeline(pair)}]));
+        [{label: 'Map pair', run: button => showRunWitness(pair, button)},
+          {label: 'Inspect timeline', run: button => inspectWitnessTimeline(pair, button)}]));
     }
     const capped = proximityCount >= MAX_PROXIMITY_DISPLAY;
     $('proximity-next').hidden = !proximityCursor || capped;
@@ -1686,7 +1712,10 @@ function returnFromMap() {
   viewingMap = false;
   $('map-return').hidden = true;
   $('analysis-drawer').hidden = false;
-  $('drawer-map').focus();
+  const target = mapReturnTarget?.isConnected === false ? null : mapReturnTarget;
+  mapReturnTarget = null;
+  (target || $('drawer-map')).focus();
+  $('return-results').textContent = 'Back to results';
 }
 function finishPlacePick(chosen = false) {
   if (!pickingPlace) return;
@@ -1701,6 +1730,7 @@ function closeAnalysisDrawer({restoreFocus = true} = {}) {
   const acrossWasOpen = !$('proximity-panel').hidden;
   pickingPlace = false;
   viewingMap = false;
+  mapReturnTarget = null;
   $('place-pick-hint').hidden = true;
   $('map-return').hidden = true;
   for (const [panel, toggle] of ANALYSIS_TOOLS) {
@@ -1739,16 +1769,24 @@ function startPlacePick() {
   $('place-pick-hint').hidden = false;
   $('place-pick-cancel').focus();
 }
-function showMapInsteadOfDrawer() {
+function showMapInsteadOfDrawer(origin = null, returnLabel = 'Back to results') {
   if ($('analysis-drawer').hidden) return;
   viewingMap = true;
+  mapReturnTarget = origin;
   $('analysis-drawer').hidden = true;
   $('map-return').hidden = false;
+  $('return-results').textContent = returnLabel;
   $('return-results').focus();
+}
+function revealEvidenceOnMap(origin, returnLabel) {
+  // Make the requested observation visible, on desktop as well as phones.
+  // On return, focus the action in the *same* evidence row.
+  if (!$('analysis-drawer').hidden) showMapInsteadOfDrawer(origin, returnLabel);
 }
 $('place-pick').addEventListener('click', startPlacePick);
 $('place-pick-cancel').addEventListener('click', () => finishPlacePick());
-$('drawer-map').addEventListener('click', showMapInsteadOfDrawer);
+$('drawer-map').addEventListener('click', () => showMapInsteadOfDrawer());
+$('witness-back').addEventListener('click', backToWitnessPair);
 $('return-results').addEventListener('click', returnFromMap);
 $('drawer-close').addEventListener('click', () => closeAnalysisDrawer());
 document.addEventListener('keydown', event => {
