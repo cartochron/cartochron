@@ -120,12 +120,15 @@ joins older runs or another channel's positions.
 
 ### 2. History: what was recorded, and when?
 
-Switch to History and browse recording runs separately. Three visible questions
-start an investigation: **What was here?**, **Compare routes**, and
+Switch to History and browse recording runs separately. On desktop, three visible
+questions start an investigation; on a small screen, open **Explore recordings**
+to reach the same choices: **What was here?**, **Compare routes**, and
 **Where did two recordings overlap?** Each opens a closable results panel over
 the map rather than pushing the map downward. You can begin without configuring
-advanced settings. Open **Time interval** once when you need to narrow the
-receipt-time range; **Entire recording** restores the default range. Filter by stored source or channel, page into older runs,
+advanced settings. **Time interval** is always a separate, one-click control;
+its picker overlays the map just like Monitor's **View options**. After applying
+an interval the control indicates that the history is filtered; **Entire
+recording** restores the default range. Filter by stored source or channel, page into older runs,
 then select an interval if needed.
 Cartochron uses a **half-open interval** `[from, to)` on the *receipt clock*.
 History requests and rendered pages are bounded; a partial result does not
@@ -167,7 +170,9 @@ is a separate question.*
 
 ### 5. Shared time: what was actually observed together?
 
-Move the **Shared time** cursor in History. For each loaded run, Cartochron
+After loading a second run with **Compare routes**, move the **Shared time**
+cursor in History. It stays hidden for a single run, where **Inspect point**
+is the appropriate tool. For each loaded run, Cartochron
 selects the latest actual fix at or before the chosen instant **only when no
 more than five minutes old**. It does not interpolate positions. A missing
 qualifying fix means **no sufficiently recent loaded observation**, not

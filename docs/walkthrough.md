@@ -40,11 +40,11 @@ operator-configured assertions, not verified device identities.
   the line into separate route segments. Pale endpoint rings explain the gap
   duration when inspected. Movement between fixes is unknown. Green marks
   the first displayed fix, orange the last, and purple the inspected fix.
-- **Tracks** shows up to four runs at once: the focused blue run plus up to
+- **Compare routes** shows up to four runs at once: the focused blue run plus up to
   three color-coded comparison layers. **Entire runs (spatial)** compares the
   loaded routes regardless of time; **Same interval** filters comparisons to
   the focused run's selected window.
-- **Shared time** highlights only the latest recorded fix at or before the
+- **Shared time** appears after a second comparison run has loaded. It highlights only the latest recorded fix at or before the
   cursor if it is no more than five minutes old. It never interpolates
   positions or treats stale fixes as current.
 - **What was here?** accepts a click on the map and lists up to 40
@@ -96,7 +96,8 @@ colors, and both sides of recording gaps remain visible. Long tracks display
 fewer dots to avoid overloading the map; clicking the line still locates fixes
 between them. Live mode opens an inspection popup on click.
 
-In **History** mode, choose **Tracks** to show comparison runs. The focused
+In **History** mode, choose **Compare routes** (under **Explore recordings**
+on small screens) to show comparison runs. The focused
 run remains blue; the three possible additional runs use violet, teal, and
 crimson with dark outlines. Clicking a node or a line opens its real recorded
 coordinates and time; the primary point slider continues to inspect the
