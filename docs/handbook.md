@@ -281,9 +281,11 @@ Each candidate leads with the two descriptive channel/source names, the
 Expand **Exact evidence and provenance** to inspect both original run IDs,
 fix IDs, clock values, producer assertions and available accuracy. These
 identifiers are hidden from the quick-reading line, not removed from the
-record. Click **Map pair** to frame their reported positions. Two coincident
-reports share one visual symbol with both identifiers available. There is no
-line between them: that line would be a movement assertion we did not observe.
+record. Click **Map pair** to reveal the map and frame their reported
+positions; **Back to comparison** returns to the same evidence card without
+repeating the search. Two coincident reports share one visual symbol with both
+identifiers available. There is no line between them: that line would be a
+movement assertion we did not observe.
 
 **Inspect timeline** on an individual pair opens a second, deliberately bounded
 question: *what was recorded immediately before and after these two reported
@@ -293,7 +295,10 @@ and 15 minutes after the later fix. The timeline sorts evidence by server
 receipt time and displays the two selected fixes, their immediately adjacent
 recorded fixes within the retrieved window, and gaps greater than ten minutes
 between consecutive retrieved fixes **within the same run**. **Map fix** shows
-one original observation without drawing a connecting line.
+one original observation without drawing a connecting line. The map has
+**Back to timeline**, restoring focus to the selected fix. The timeline has
+**Back to comparison results**, returning to the originating pair; it does not
+throw away the retrieved witness context or saved notes.
 
 Timeline rows distinguish **Selected witness**, preceding/following fixes and
 recorded gaps at a glance. Exact IDs and measurements are available in each
