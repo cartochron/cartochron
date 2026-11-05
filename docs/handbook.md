@@ -183,7 +183,7 @@ Press **Search recorded history** to ask a different question: *which individual
 recorded observations, across all saved runs, fall within this radius?* This
 second list returns the supporting observations with exact run IDs, channel
 and source labels if known, receipt times, reported fix provenance and computed
-distance. Use **Older search page** until the cursor is exhausted. A page with
+distance. Use **Search older records** until the cursor is exhausted. A page with
 no matches may still have older candidates; do not interpret it as complete.
 The search is not a frozen database snapshot while acquisition continues.
 
@@ -243,6 +243,24 @@ reporting any finding. A geographic distance computed from reported
 coordinates is not a measured distance between physical people. Repeated fixes
 are not automatically independent measurements or evidence of a visit/dwell.
 
+#### Reading a result before interpreting it
+
+The place and two-run searches lead with three lines: **finding** (what the
+retrieved observations show), **coverage** (what was actually examined and
+whether older pages or candidate limits remain), and **next** (the action
+available to investigate further). A result's headline is not a conclusion
+about people, presence, or movement.
+
+A zero on an **incomplete** search only means no matches *so far*. Continue
+into older records. When the search reaches its end, a zero is bounded to
+those exact filters and the database state at query time—not proof of
+absence. In Across places, even an exhausted anchor scan is not exhaustive
+pair enumeration: dense windows can be capped and one target witness is
+selected per anchor. In that case reduce the receipt-time window or narrow
+the interval. If an older page fails, retain the already retrieved evidence
+and retry that same page; don't restart and mistake the first page for all
+history.
+
 ### 8. Across places: where do two recording histories have close reported fixes?
 
 The place inspector asks about a **chosen location**. The **Across places**
@@ -285,8 +303,7 @@ when available, is displayed separately from receipt time. Neither the
 chosen pair nor neighboring fixes establish a meeting.
 
 The search is bounded: one nearby reported fix is selected per anchor, up to
-200 anchors examined per page. When there is more evidence, click **Older
-candidate page**. A dense target run may exceed the per-anchor candidate
+200 anchors examined per page. When there is more evidence, click **Continue into older fixes**. A dense target run may exceed the per-anchor candidate
 budget; the interface warns that comparisons could be missing. Changing a
 run, radius, time window, or interval invalidates the old results.
 
