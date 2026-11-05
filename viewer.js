@@ -98,6 +98,58 @@ function investigationResult(prefix, state, finding, coverage, next) {
   $(prefix + '-next-step').textContent = next ? 'Next · ' + next : '';
   $(prefix + '-summary').dataset.state = state;
 }
+// One concise reading layer, with exact provenance available on demand.
+// All producer and operator text enters through textContent, never HTML.
+function evidenceCard(title, summary, provenance = [], actions = []) {
+  const li = document.createElement('li');
+  li.className = 'evidence-card';
+  const heading = document.createElement('strong');
+  heading.className = 'evidence-title';
+  heading.textContent = title;
+  li.appendChild(heading);
+  const description = document.createElement('p');
+  description.className = 'evidence-text';
+  description.textContent = summary;
+  li.appendChild(description);
+  if (provenance.length) {
+    const disclosure = document.createElement('details');
+    disclosure.className = 'evidence-provenance';
+    const toggle = document.createElement('summary');
+    toggle.textContent = 'Exact evidence and provenance';
+    disclosure.appendChild(toggle);
+    for (const line of provenance) {
+      const detail = document.createElement('p');
+      detail.textContent = line;
+      disclosure.appendChild(detail);
+    }
+    li.appendChild(disclosure);
+  }
+  if (actions.length) {
+    const controls = document.createElement('div');
+    controls.className = 'evidence-actions';
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = action.label;
+      button.addEventListener('click', action.run);
+      controls.appendChild(button);
+    }
+    li.appendChild(controls);
+  }
+  return li;
+}
+function evidenceName(point) {
+  return point.channel_label || point.source_label || point.channel_id || point.source_id || 'Unattributed';
+}
+function evidenceFix(point, side) {
+  return `${side} · ${evidenceName(point)} · run ${point.track_id} / fix ${point.id}`
+    + ` · received ${localTime(point.time)}`
+    + (Number.isFinite(point.lat) && Number.isFinite(point.lon)
+      ? ` · reported coordinates ${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}` : '')
+    + ` · ${fixDetails(point)}`
+    + (point.channel_id ? ` · channel ${point.channel_id}` : '')
+    + (point.source_id ? ` · enrolled source ${point.source_id}` : '');
+}
 function localTime(value) { return new Date(value).toLocaleString(); }
 function localInput(value) {
   const d = new Date(value);
@@ -257,11 +309,10 @@ async function loadWitnessAnnotations(more = false) {
     if (token !== witnessAnnotationRevision || $('witness-timeline').hidden || mode !== 'history') return;
     if (!more) $('witness-annotation-results').replaceChildren();
     for (const note of result.annotations) {
-      const li = document.createElement('li');
-      // User-authored notes are always text, never executable HTML.
-      li.textContent = `Annotation ${note.id} · ${localTime(note.created)} · `
-        + `fix ${note.fix_ids.join(' + ')} · ${note.note}`;
-      $('witness-annotation-results').appendChild(li);
+      $('witness-annotation-results').appendChild(evidenceCard(
+        `Operator interpretation · ${localTime(note.created)}`, note.note,
+        [`Annotation #${note.id} · linked fix IDs ${note.fix_ids.join(' + ')}`,
+          'This is an operator-authored interpretation, not recorded location evidence.']));
     }
     witnessAnnotationCursor = result.next_cursor;
     $('witness-annotation-next').hidden = !witnessAnnotationCursor;
@@ -379,30 +430,26 @@ async function inspectWitnessTimeline(pair) {
     };
     const events = witnessContextEvents(pair, windows);
     for (const event of events) {
-      const li = document.createElement('li');
-      const summary = document.createElement('span');
       const side = event.side.toUpperCase();
       const identity = witnessIdentity(pair[event.side]);
       if (event.kind === 'gap') {
-        summary.textContent = `${side} · ${identity} · Recorded gap ${(event.gap / 60000).toFixed(1)} min`
-          + ` between fix ${event.before.id} (${localTime(event.before.time)}) and `
-          + `fix ${event.after.id} (${localTime(event.after.time)}). No intervening fixes in this run.`;
-        li.appendChild(summary);
+        $('witness-timeline-events').appendChild(evidenceCard(
+          `${side} · ${Math.round(event.gap / 60000)}-minute gap between recorded fixes`,
+          `${identity} · ${localTime(event.before.time)} – ${localTime(event.after.time)}`,
+          [`Same run: ${event.before.track_id} · fix ${event.before.id} to fix ${event.after.id}`,
+            'No intervening recorded fixes in this retrieved interval. Movement and connectivity unknown.']));
       } else {
         const prefix = event.kind === 'witness' ? 'Selected witness' : event.relation;
-        summary.textContent = `${side} · ${identity} · ${prefix} · ${event.point.track_id} / fix ${event.point.id}`
-          + ` · Received ${localTime(event.point.time)} · ${fixDetails(event.point)}`
-          + (event.outsidePage ? ' · Not in retrieved context page' : '');
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = 'Map fix';
-        button.addEventListener('click', () => mapWitnessFix(event.side, {...event.point,
-          channel_label: pair[event.side].channel_label, channel_id: pair[event.side].channel_id,
-          source_label: pair[event.side].source_label, source_id: pair[event.side].source_id}));
-        li.appendChild(summary);
-        li.appendChild(button);
+        $('witness-timeline-events').appendChild(evidenceCard(
+          `${side} · ${prefix} · ${localTime(event.point.time)}`,
+          `${identity}${event.outsidePage ? ' · Not in retrieved context page' : ''}`,
+          [evidenceFix({...event.point, channel_label: pair[event.side].channel_label,
+            channel_id: pair[event.side].channel_id, source_label: pair[event.side].source_label,
+            source_id: pair[event.side].source_id}, side)],
+          [{label: 'Map fix', run: () => mapWitnessFix(event.side, {...event.point,
+            channel_label: pair[event.side].channel_label, channel_id: pair[event.side].channel_id,
+            source_label: pair[event.side].source_label, source_id: pair[event.side].source_id})}]));
       }
-      $('witness-timeline-events').appendChild(li);
     }
     const partial = a.truncated || b.truncated || a.next_cursor || b.next_cursor;
     const outside = events.some(event => event.outsidePage);
@@ -502,30 +549,16 @@ async function searchRunProximity(more = false) {
     proximityCount += result.pairs.length;
     proximityCursor = result.next_cursor;
     for (const pair of result.pairs) {
-      const li = document.createElement('li');
-      const details = document.createElement('span');
       const kind = pair.identity_kind === 'source'
         ? 'Different enrolled source claims' : 'Different channel claims only';
-      const name = point => point.channel_label || point.source_label
-        || point.channel_id || point.source_id || 'Unattributed';
-      details.textContent = `${kind}: ${name(pair.a)} (${pair.a.track_id} / fix ${pair.a.id}) and `
-        + `${name(pair.b)} (${pair.b.track_id} / fix ${pair.b.id})`
-        + ` · received ${localTime(pair.a.time)} / ${localTime(pair.b.time)}`
-        + ` · Δt ${(pair.receipt_delta_ms / 1000).toFixed(1)}s`
-        + ` · reported positions ${pair.distance_m} m apart`
-        + ` · reported accuracy ${pair.a.accuracy_m ?? 'unknown'} m / ${pair.b.accuracy_m ?? 'unknown'} m`;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = 'Map pair';
-      button.addEventListener('click', () => showRunWitness(pair));
-      const timeline = document.createElement('button');
-      timeline.type = 'button';
-      timeline.textContent = 'Inspect timeline';
-      timeline.addEventListener('click', () => inspectWitnessTimeline(pair));
-      li.appendChild(details);
-      li.appendChild(button);
-      li.appendChild(timeline);
-      $('proximity-results').appendChild(li);
+      $('proximity-results').appendChild(evidenceCard(
+        `${evidenceName(pair.a)} ↔ ${evidenceName(pair.b)}`,
+        `${(pair.receipt_delta_ms / 1000).toFixed(1)} s between receipts · `
+          + `${pair.distance_m} m between reported positions`,
+        [kind, evidenceFix(pair.a, 'A'), evidenceFix(pair.b, 'B'),
+          'Nearby reports do not establish a meeting or continuous presence.'],
+        [{label: 'Map pair', run: () => showRunWitness(pair)},
+          {label: 'Inspect timeline', run: () => inspectWitnessTimeline(pair)}]));
     }
     const capped = proximityCount >= MAX_PROXIMITY_DISPLAY;
     $('proximity-next').hidden = !proximityCursor || capped;
@@ -1333,16 +1366,14 @@ function renderPlaceProximity() {
   const conflicts = mixedSourceChannels(placeSearchMatches);
   const matches = temporalProximityWitnesses(placeSearchMatches, windowMinutes * 60_000);
   for (const match of matches.slice(0, MAX_PLACE_WITNESSES)) {
-    const li = document.createElement('li');
     const kind = match.identity.kind === 'source'
       ? 'Different enrolled source claims' : 'Different channel claims only';
-    const seconds = Math.round(match.difference / 1000);
-    li.textContent = `${kind}: ${match.identity.left} (${match.a.track_id} / fix ${match.a.id})`
-      + ` and ${match.identity.right} (${match.b.track_id} / fix ${match.b.id})`
-      + ` · receipts ${localTime(match.a.time)} / ${localTime(match.b.time)}`
-      + ` · Δt ${seconds}s · reported positions ${Math.round(match.separation)} m apart`
-      + ` · reported accuracy ${match.a.accuracy_m ?? 'unknown'} m / ${match.b.accuracy_m ?? 'unknown'} m`;
-    list.appendChild(li);
+    list.appendChild(evidenceCard(
+      `${evidenceName(match.a)} ↔ ${evidenceName(match.b)}`,
+      `${Math.round(match.difference / 1000)} s between receipts · `
+        + `${Math.round(match.separation)} m between reported positions`,
+      [kind, evidenceFix(match.a, 'A'), evidenceFix(match.b, 'B'),
+        'Derived from retrieved matching fixes only; not proof of an encounter.']));
   }
   const incomplete = Boolean(placeSearchCursor) || placeSearchCount >= MAX_PLACE_DISPLAY;
   $('place-proximity-status').textContent = `${matches.length} qualifying observation pair${matches.length === 1 ? '' : 's'}`
@@ -1402,11 +1433,10 @@ async function searchRecordedPlace(more = false) {
     const page = await getJSON('/api/place/observations?' + query);
     if (request !== placeSearchRevision) return;
     for (const p of page.points) {
-      const item = document.createElement('li');
-      const name = p.channel_label || p.source_label || p.channel_id || p.source_id || 'Unattributed';
-      item.textContent = `${localTime(p.time)} · ${name} · run ${p.track_id} · `
-        + `${p.distance_m} m · ${fixDetails(p)}`;
-      $('place-db-results').appendChild(item);
+      $('place-db-results').appendChild(evidenceCard(
+        `${evidenceName(p)} · ${localTime(p.time)}`,
+        `${p.distance_m} m from selected place · recorded fix`,
+        [evidenceFix(p, 'Fix'), 'Distance is between reported coordinates, not proof of physical presence.']));
       placeSearchMatches.push(p);
       placeSearchCount++;
     }

@@ -74,9 +74,13 @@ function viewer() {
     document: {
       ...document, get activeElement() {return document.activeElement;},
       getElementById: element,
-      createElement() { return {textContent: '', events: {}, children: [],
-        appendChild(child) { this.children.push(child); },
-        addEventListener(name, fn) { this.events[name] = fn; }}; },
+      createElement(tagName) { return {
+        tagName: tagName.toUpperCase(), _text: '', events: {}, children: [],
+        get textContent() { return this._text + this.children.map(child => child.textContent).join(''); },
+        set textContent(value) { this._text = String(value); this.children = []; },
+        appendChild(child) { this.children.push(child); return child; },
+        addEventListener(name, fn) { this.events[name] = fn; }
+      }; },
     },
     L: {
       map: () => map,
@@ -114,6 +118,22 @@ function point(i, minutes = i) {
     time: new Date(Date.UTC(2026, 10, 2, 12, minutes)).toISOString(),
   };
 }
+
+test('evidence card leads with a finding and hides exact provenance without interpolating HTML', () => {
+  const ui = viewer();
+  ui.context.unsafe = '<img src=x onerror=alert(1)>';
+  const card = ui.exec(`evidenceCard('Candidate comparison', '7 s between receipts',
+    [unsafe, 'run a / fix 12'], [{label: 'Inspect', run: () => {}}])`);
+  assert.equal(card.children[0].textContent, 'Candidate comparison');
+  assert.equal(card.children[1].textContent, '7 s between receipts');
+  const details = card.children[2];
+  assert.equal(details.tagName, 'DETAILS');
+  assert.equal(details.children[0].tagName, 'SUMMARY');
+  assert.equal(details.children[1].textContent, '<img src=x onerror=alert(1)>');
+  assert.equal(details.children[2].textContent, 'run a / fix 12');
+  assert.equal(details.innerHTML, undefined);
+  assert.equal(card.children[3].children[0].textContent, 'Inspect');
+});
 
 test('live receipt status distinguishes recent data from stale history without claiming online', () => {
   const ui = viewer();
@@ -895,8 +915,8 @@ test('place witness comparisons update across pages, windows and changed locatio
   const entries = ui.element('place-proximity-results').children;
   assert.equal(entries.length, 1);
   assert.match(entries[0].textContent, /Different channel claims only/);
-  assert.match(entries[0].textContent, /Δt 120s/);
-  assert.match(entries[0].textContent, /reported accuracy 12 m \/ 7 m/);
+  assert.match(entries[0].children[1].textContent, /120 s between receipts/);
+  assert.match(entries[0].textContent, /Reported accuracy 12 m.*Reported accuracy 7 m/);
   assert.equal(entries[0].innerHTML, undefined); // No operator-controlled HTML interpolation.
   assert.match(ui.element('place-proximity-status').textContent, /retrieved search complete/);
   ui.element('place-proximity-window').value = '1';
@@ -945,12 +965,12 @@ test('cross-run search finds witnesses from the database, not just loaded Histor
   assert.match(requests[0], /^\/api\/proximity\?/);
   assert.match(requests[0], /other_track_id=run-b/);
   assert.equal(ui.element('proximity-results').children.length, 1);
-  assert.match(ui.element('proximity-results').children[0].children[0].textContent,
+  assert.match(ui.element('proximity-results').children[0].textContent,
     /Different channel claims only/);
   assert.match(ui.element('proximity-results').children[0].children[0].textContent, /unsafe/);
   assert.equal(ui.element('proximity-results').children[0].children[0].innerHTML, undefined);
   assert.equal(ui.exec('proximityLayer.layers.length'), 0); // Results never move map automatically.
-  ui.element('proximity-results').children[0].children[1].events.click();
+  ui.element('proximity-results').children[0].children[3].children[0].events.click();
   assert.equal(ui.exec('proximityLayer.layers.length'), 2);
   assert.equal(ui.fitted.length, 1);
   assert.equal(ui.exec('overlayLayers.size'), 0); // No fake joined path.
@@ -1094,14 +1114,14 @@ test('witness timeline loads bounded receipt-time context for exactly two runs',
   assert.equal(ui.element('witness-timeline').hidden, false);
   const events = ui.element('witness-timeline-events').children;
   assert.equal(events.length, 7); // Two witnesses, four neighboring fixes, one internal gap.
-  assert.equal(events.filter(row => row.children[0].textContent.includes('Recorded gap')).length, 1);
-  const gap = events.find(row => row.children[0].textContent.includes('Recorded gap'));
-  assert.match(gap.children[0].textContent, /A · channel OnePlus GPSD · Recorded gap 12\.0 min/);
+  assert.equal(events.filter(row => row.textContent.includes('gap between recorded fixes')).length, 1);
+  const gap = events.find(row => row.textContent.includes('gap between recorded fixes'));
+  assert.match(gap.textContent, /A · 12-minute gap between recorded fixes.*channel OnePlus GPSD/);
   assert.match(ui.element('witness-timeline-status').textContent, /Loaded A: 3 fixes; B: 3 fixes/);
   assert.match(ui.element('witness-timeline-status').textContent, /receiver receipts/);
   assert.equal(ui.exec('proximityLayer.layers.length'), 0); // No automatic map movement.
-  const marker = events.find(row => row.children[0].textContent.includes('Selected witness'));
-  marker.children[1].events.click();
+  const marker = events.find(row => row.textContent.includes('Selected witness'));
+  marker.children[3].children[0].events.click();
   assert.equal(ui.exec('proximityLayer.layers.length'), 1);
   assert.equal(ui.exec('overlayLayers.size'), 0); // No joining route.
 });
@@ -1136,7 +1156,7 @@ test('partial witness window and absent witness cannot be mistaken for complete 
   assert.match(ui.element('witness-timeline-status').textContent, /witness is outside the retrieved context page/);
   assert.equal(ui.element('witness-timeline-events').children.length, 2); // Evidence from pair query retained.
   assert(ui.element('witness-timeline-events').children.every(
-    row => row.children[0].textContent.includes('Not in retrieved context page')));
+    row => row.textContent.includes('Not in retrieved context page')));
 });
 
 test('a changed comparison discards late context replies', async () => {
@@ -1178,8 +1198,8 @@ test('Across places offers timeline inspection without fetching context until se
   await ui.exec('searchRunProximity()');
   assert.equal(calls, 1); // No eager second-run history load.
   const row = ui.element('proximity-results').children[0];
-  assert.equal(row.children[2].textContent, 'Inspect timeline');
-  await row.children[2].events.click();
+  assert.equal(row.children[3].children[1].textContent, 'Inspect timeline');
+  await row.children[3].children[1].events.click();
   // DOM listener does not return promise; flush queued microtasks.
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls, 3);
@@ -1211,8 +1231,10 @@ test('witness-pair annotations are loaded only when requested and rendered as te
   const params = new URL(requests[2], 'http://localhost').searchParams;
   assert.deepEqual(params.getAll('fix_id'), ['77', '23']);
   assert.equal(ui.element('witness-annotation-results').children.length, 1);
-  assert.match(ui.element('witness-annotation-results').children[0].textContent,
+  assert.match(ui.element('witness-annotation-results').children[0].children[1].textContent,
                /<script>not executable<\/script>/);
+  assert.equal(ui.element('witness-annotation-results').children[0].children[1].innerHTML, undefined);
+  assert.match(ui.element('witness-annotation-results').children[0].children[2].textContent, /linked fix IDs/);
   assert.equal(ui.element('witness-annotation-next').hidden, true);
 });
 

@@ -86,6 +86,18 @@
     .track-layer span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #witness-annotation-command {white-space:pre-wrap;overflow-wrap:anywhere}
     #witness-annotation-results li {white-space:pre-wrap;overflow-wrap:anywhere}
+    /* Scan first; exact IDs, clocks and provenance remain one disclosure away. */
+    #place-db-results,#place-proximity-results,#proximity-results,#witness-timeline-events,#witness-annotation-results {
+      list-style:none;padding-left:0;max-height:none;overflow:visible}
+    .analysis-drawer li.evidence-card {margin:8px 0;padding:11px 12px;border:1px solid #345666;
+      background:#1b303c;border-radius:9px;overflow-wrap:anywhere}
+    .evidence-title {display:block;font-size:13px;line-height:1.4;color:#e8f0f5}
+    .evidence-text {font-size:12px;color:#cbdde7;margin:5px 0 2px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .evidence-provenance {margin-top:7px;border-top:1px solid #385463;padding-top:5px}
+    .evidence-provenance summary {font-size:12px;color:#a6d8f5;cursor:pointer}
+    .evidence-provenance p {font-size:12px;color:#b3cad8;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+    .evidence-actions {display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+    .evidence-actions button {font-size:12px;padding:5px 9px}
     .result-brief {margin:12px 0 16px;padding:10px 0;border-block:1px solid #385061}
     .result-brief .result-heading {display:block;font-size:14px;font-weight:650;color:#e8f0f5;margin:0 0 4px}
     .result-brief .result-coverage {color:var(--quiet);font-size:12px;margin:5px 0}
