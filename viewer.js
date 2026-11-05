@@ -1187,8 +1187,17 @@ function showInspection() {
 // while the displayed default remains unchanged; edited fields use local time.
 function defaultHistoryTime(id, epochMs) {
   const input = $(id);
-  input.dataset.defaultUtc = new Date(epochMs).toISOString();
-  input.value = localInput(epochMs);
+  const time = new Date(epochMs);
+  // Partial or malformed catalogue metadata must never crash the viewer or
+  // retain the previous run's interval. A missing bound is not a UTC instant.
+  if (!Number.isFinite(time.getTime())) {
+    input.value = '';
+    input.dataset.defaultUtc = '';
+    input.dataset.defaultLocal = '';
+    return;
+  }
+  input.dataset.defaultUtc = time.toISOString();
+  input.value = localInput(time);
   input.dataset.defaultLocal = input.value;
 }
 function historyTimeUtc(id) {

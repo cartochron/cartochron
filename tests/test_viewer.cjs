@@ -1926,6 +1926,23 @@ test('entire History recording preserves UTC receipt bounds across the repeated 
   }
 });
 
+test('incomplete run catalogue cannot leave invalid or stale default time bounds', () => {
+  const ui = viewer();
+  ui.context.recordings = [{track_id: 'partial-run',
+    first: '2026-11-05T09:00:00.000Z', last: '2026-11-05T10:00:00.000Z'}];
+  ui.exec('historyRunList = recordings; selectedTrack = "partial-run"; historyDefaults()');
+  assert.equal(ui.element('from').dataset.defaultUtc, '2026-11-05T08:59:59.000Z');
+  assert.equal(ui.element('to').dataset.defaultUtc, '2026-11-05T10:00:01.000Z');
+  // A truncated catalogue fixture omitted first/last: never reuse old bounds.
+  ui.context.recordings[0] = {track_id: 'partial-run'};
+  assert.doesNotThrow(() => ui.exec('historyDefaults()'));
+  for (const id of ['from', 'to']) {
+    assert.equal(ui.element(id).value, '');
+    assert.equal(ui.element(id).dataset.defaultUtc, '');
+    assert.equal(ui.element(id).dataset.defaultLocal, '');
+  }
+});
+
 test('clicking outside dismisses the time picker without applying an interval', () => {
   const ui = viewer();
   const picker = ui.element('history-actions');
