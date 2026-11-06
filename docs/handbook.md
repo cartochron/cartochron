@@ -2,9 +2,9 @@
 
 *An operator's guide to observing, comparing, and questioning location evidence.*
 
-This is the first **living edition**, covering the implemented v0.1-era
-analysis tools. Planned capabilities are described separately in
-[the project vision](vision.md); nothing in that document should be
+This living edition covers the implemented v0.2 investigation tools. Planned
+capabilities are described separately in [the project vision](vision.md);
+nothing in that document should be
 mistaken for a working control.
 
 For a compact illustrated guide inside the running application, open
@@ -30,7 +30,7 @@ an operator changes a display label.
 | --- | --- | --- |
 | Recent receipts | A position report reached the server recently | The producer is currently connected or the device is physically there |
 | Last recorded point | The most recent stored report for a run | Continuous presence since the report |
-| Route line | The visual order of *recorded* observations | An observed journey between the points |
+| Dashed observation link | The visual order of *recorded* coordinates | A measured journey between the points |
 | Broken line / gap | No supporting reports for an interval beyond the threshold | Device absence or any particular movement in the gap |
 | Two routes crossing | Recorded geographic overlap | A meeting without temporal and independent supporting evidence |
 

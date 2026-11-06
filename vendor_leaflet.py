@@ -46,7 +46,7 @@ def main():
         print(f"Leaflet {VERSION} is already installed and verified in {DEST}")
         return
     print(f"Fetching Leaflet {VERSION} from npm ...", flush=True)
-    req = Request(URL, headers={"User-Agent": "GPSMapLab-vendor/1.0"})
+    req = Request(URL, headers={"User-Agent": "Cartochron-vendor/1.0"})
     with urlopen(req, timeout=30) as response:
         blob = response.read(12 * 1024 * 1024 + 1)
     if len(blob) > 12 * 1024 * 1024:

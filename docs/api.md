@@ -25,9 +25,10 @@ point history does not repeat run-level metadata. Existing requests without a
 channel retain unchanged receipt response bodies. Measurement metadata is
 included in point responses only when reported (`measured_time` is RFC3339).
 Such values are unverified producer reports, not substitute receipt timestamps.
-The current Meterpreter adapter supplies none of the measurement metadata
-fields and may omit `channel_id`. The GPSD adapter can supply a configured
-`channel_id` independently of whether a source has been enrolled.
+The current Meterpreter adapter reports `provider: network`, but does not
+supply `measured_ms` or `accuracy_m`; it may omit `channel_id`. Older recorded
+rows retain their original missing metadata. The GPSD adapter can supply a
+configured `channel_id` independently of whether a source has been enrolled.
 
 The API exposes these relevant GET operations:
 

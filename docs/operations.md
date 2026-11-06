@@ -110,8 +110,8 @@ v7. No change to the GPSD or Metasploit adapter is necessary.
 
 ## Back up and restore
 
-**Stop the receiver before copying the SQLite file.** This is the simplest
-safe path for v0.1 and prevents a torn copy while ingestion is active.
+**Stop the receiver before copying the SQLite file.** An offline copy is the
+simplest safe backup and prevents a torn copy while ingestion is active.
 
 ```sh
 docker compose stop

@@ -1,10 +1,35 @@
 # NEWS
 
-## Unreleased
+## 0.2.0 — 2026-11-05
 
-- Add an explicit database-wide place inspector with cross-run observation
-  provenance, exact radius checks, bounded paginated results, and a v6
-  spatial lookup index. It does not infer visits or continuous presence.
+- Investigate a place across stored recording runs using exact-radius searches,
+  bounded paging, source/channel filters, and a schema v6 spatial index.
+  Results are individual reported fixes, not inferred visits.
+- Compare two runs across places by bounded receipt-time and distance windows;
+  inspect original witness pairs, adjacent observations, and recorded gaps.
+  Dense candidate limits and incomplete history remain explicit.
+- Add private, append-only operator annotations linked to one or two original
+  observation IDs (schema v7). Notes are written locally, never through the
+  browser's shared ingestion credential.
+- Improve Monitor and History navigation, comparison selection, small-screen
+  usability, and explicit empty/error/partial-result recovery. Preserve exact
+  full-recording bounds across daylight-saving transitions.
+- Render dashed observation links rather than implying measured travel;
+  disclose unknown acquisition times while preserving original reports.
+- Redact untrusted HTTP request targets from receiver access logs and add
+  focused regression coverage for privacy and viewer state transitions.
+
+### Upgrade from 0.1.0
+
+- **Back up the private SQLite database before starting 0.2.0.** Persistent
+  databases migrate from schema v5 through v6 to v7. Older receivers cannot
+  open a database after migration; restoring 0.1.0 requires restoring its
+  pre-upgrade database backup as well.
+- Upgrade the receiver before updating acquisition adapters. The current
+  Metasploit adapter reports `provider: network` but still cannot determine
+  the phone's fix acquisition time or accuracy; existing rows are unchanged.
+- Run `make check` and the opt-in real Docker check `make check-deploy` before
+  tagging or upgrading a live receiver. See `docs/operations.md`.
 
 ## 0.1.0 — 2026-11-04
 

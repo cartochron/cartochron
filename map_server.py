@@ -288,7 +288,7 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GPSMapLab/1.0"
+    server_version = "Cartochron"
     timeout = 10  # Do not let an incomplete request occupy a worker indefinitely.
 
     def _reply(self, status, body, content_type, extra_headers=()):
@@ -314,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         body = b'{"error":"authentication required"}'
         self._reply(401, body, "application/json; charset=utf-8",
-                    (("WWW-Authenticate", 'Basic realm="GPS Map", charset="UTF-8"'),))
+                    (("WWW-Authenticate", 'Basic realm="Cartochron", charset="UTF-8"'),))
         return False
 
     def _valid_host(self):
@@ -560,7 +560,7 @@ def main():
     try:
         with Server((args.bind, args.port), Handler, authorization=authorization,
                     database=args.db) as server:
-            print(f"GPS map listening on {args.bind}:{args.port}", flush=True)
+            print(f"Cartochron listening on {args.bind}:{args.port}", flush=True)
             if args.db:
                 print("Recording observations in SQLite (persistent).", flush=True)
             else:

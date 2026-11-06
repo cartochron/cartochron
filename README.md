@@ -40,9 +40,11 @@ can also send reports. Its registry's channel identifiers persist across
 collector restarts without implying verified phone identity. Cartochron stores
 these optional per-run IDs from schema v4 onward; previously recorded runs
 remain unattributed to a channel. Schema v5 adds operator-owned channel
-*display names* without changing any recorded associations. **Back up the
-persistent SQLite database before upgrading**; the receiver must be upgraded
-before clients requiring newer fields.
+*display names* without changing any recorded associations. Schema v6 adds
+place-search indexing; v7 adds evidence-linked operator annotations. **Back up
+the persistent SQLite database before upgrading**; older receivers cannot read
+a database migrated to v7. Upgrade the receiver before adapters requiring
+newer fields.
 
 The optional [Cartochron Metasploit adapter](https://github.com/cartochron/cartochron-metasploit)
 is a **separate repository**, with its own `make install` and Ruby tests.

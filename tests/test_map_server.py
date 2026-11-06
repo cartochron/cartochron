@@ -83,7 +83,9 @@ class MapServerTest(unittest.TestCase):
         for path in ("/", "/api/points", "/vendor/leaflet/leaflet.js"):
             status, headers, _ = self.request("GET", path)
             self.assertEqual(status, 401)
-            self.assertIn("Basic", headers["WWW-Authenticate"])
+            self.assertEqual(headers["WWW-Authenticate"],
+                             'Basic realm="Cartochron", charset="UTF-8"')
+            self.assertTrue(headers["Server"].startswith("Cartochron"))
         self.assertEqual(self.position()[0], 401)
         self.assertEqual(self.position({"Authorization": "Basic invalid"})[0], 401)
         self.assertEqual(self.position({"Authorization": auth})[0], 201)

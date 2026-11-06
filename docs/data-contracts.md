@@ -23,9 +23,12 @@ identities server-side before authorizing writes to a source.
 The database stores original accepted coordinates and reception times. Producers
 may optionally report `measured_ms` (Unix epoch milliseconds), `provider` (an
 opaque provider name), and `accuracy_m` (horizontal accuracy in metres).
-These are producer assertions, not independently verified measurements. All
-three fields are absent for legacy and current Meterpreter observations; missing
-values must never be replaced with server receipt time or guessed accuracy.
+These are producer assertions, not independently verified measurements. The
+current Meterpreter adapter supplies `provider: network` but no `measured_ms`
+or `accuracy_m`; previously stored rows remain unchanged. Missing measurement
+time must not be replaced with server receipt time, and accuracy must not be
+guessed.
+
 Schema v4 adds nullable run-level `channel_id`. New databases create v7
 directly; v1–v6 databases migrate without guessing old channel identities.
 Legacy observations retain NULL for missing measurement metadata. Back up

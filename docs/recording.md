@@ -222,8 +222,10 @@ failures, and GPS acquisition failures. The server records **receipt time**,
 not independently verified satellite-fix time. Meterpreter's Android `geolocate`
 uses `getLastKnownLocation(NETWORK_PROVIDER)`: a successful poll can return the
 same cached location repeatedly, with unknown acquisition time and accuracy.
-Long observation gaps are not proof of continuous movement. Never place real
-location data or passwords in public bug reports or test fixtures.
+The current adapter reports `provider: network`, but not a measurement time or
+accuracy; existing rows are not backfilled. Long observation gaps are not proof
+of continuous movement. Never place real location data or passwords in public
+bug reports or test fixtures.
 
 ## When a receiver stops or changes credentials
 

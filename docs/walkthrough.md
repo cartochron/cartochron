@@ -28,10 +28,12 @@ operator-configured assertions, not verified device identities.
   minutes, not that a phone is online. After two minutes without a receipt,
   **No recent receipts** dims the route; stored fixes remain available. The
   selector displays receipt states, not ever-increasing counters.
-- **History** retains separate recording run IDs, independent of Monitor selection. It lists the 100 newest runs; the API can query older known IDs. History lets you set **From** and **To** using the browser's *local*
-  clock. Press **Show interval** to query `[from, to)`; use **Entire recording** to reset the range; the server converts the
-  timestamps to UTC. Use **Inspect point** to examine the position and receipt
-  time of each displayed observation.
+- **History** retains separate recording run IDs, independent of Monitor
+  selection, and pages older runs beyond the initial catalogue. Set **From**
+  and **To** using the browser's *local* clock. **Show interval** sends UTC
+  receipt-time bounds; **Entire recording** restores the exact stored bounds
+  even across daylight-saving transitions. Use **Inspect point** to read the
+  reported position and receipt time of each displayed observation.
 - The browser loads 1,000 historical points at a time. **Load more** fetches
   the next page without losing earlier points. After 5,000 displayed points,
   narrow the interval to inspect the remainder. The interface reports partial
